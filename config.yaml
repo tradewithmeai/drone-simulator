@@ -1,0 +1,37 @@
+# Drone Swarm Simulation Configuration
+
+# GUI Settings
+use_gui: true
+gui:
+  window_width: 1024
+  window_height: 768
+  background_color: [0.1, 0.1, 0.2]
+  
+# Simulation Settings
+simulation:
+  num_drones: 5
+  update_rate: 60  # Hz
+  max_speed: 10.0  # m/s
+  max_acceleration: 5.0  # m/s²
+  
+# Drone Properties
+drone:
+  size: 0.5  # meters
+  colors:
+    - [1.0, 0.0, 0.0]  # Red
+    - [0.0, 1.0, 0.0]  # Green
+    - [0.0, 0.0, 1.0]  # Blue
+    - [1.0, 1.0, 0.0]  # Yellow
+    - [1.0, 0.0, 1.0]  # Magenta
+    - [0.0, 1.0, 1.0]  # Cyan
+    - [1.0, 0.5, 0.0]  # Orange
+    - [0.5, 0.0, 1.0]  # Purple
+    
+# Formation Settings
+formation:
+  spacing: 3.0  # meters
+  patterns:
+    - "line"
+    - "circle"
+    - "grid"
+    - "v_formation"
