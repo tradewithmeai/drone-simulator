@@ -7,6 +7,22 @@ gui:
   window_height: 768
   background_color: [0.1, 0.1, 0.2]
   
+  # Display toggles
+  show_fps: true
+  show_sim_time: true
+  show_formation_type: true
+  show_labels: false  # Drone ID labels
+  show_formation_lines: true  # Formation connection lines
+  show_help: false  # Help overlay
+  
+  # Camera settings
+  smooth_camera: true
+  camera_smoothing: 0.1  # Interpolation factor (0-1)
+  
+  # HUD settings
+  hud_font_size: 16
+  hud_color: [1.0, 1.0, 1.0]  # White text
+  
 # Simulation Settings
 simulation:
   num_drones: 5

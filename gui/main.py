@@ -1,11 +1,13 @@
 import pygame
 import sys
 import yaml
+import time
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
 from .camera import Camera
 from .renderer import Renderer
+from .overlay import TextOverlay
 from ..simulation.simulator import Simulator
 
 class DroneSwarmGUI:
@@ -27,8 +29,12 @@ class DroneSwarmGUI:
         pygame.display.set_caption("Drone Swarm 3D Simulator")
         
         # Initialize components
-        self.camera = Camera([15, 15, 15], [0, 5, 0])
+        smooth_camera = self.gui_config.get('smooth_camera', True)
+        smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
+        self.camera = Camera([15, 15, 15], [0, 5, 0], smooth_camera, smoothing_factor)
         self.renderer = Renderer(self.width, self.height, self.background_color)
+        self.overlay = TextOverlay(self.width, self.height, 
+                                 self.gui_config.get('hud_font_size', 16))
         
         # Initialize simulation
         self.simulator = Simulator(config_path)
@@ -40,7 +46,12 @@ class DroneSwarmGUI:
         self.show_targets = True
         self.show_grid = True
         self.show_axes = True
-        self.show_connections = True
+        self.show_connections = self.gui_config.get('show_formation_lines', True)
+        self.show_labels = self.gui_config.get('show_labels', False)
+        self.show_fps = self.gui_config.get('show_fps', True)
+        self.show_sim_time = self.gui_config.get('show_sim_time', True)
+        self.show_formation_type = self.gui_config.get('show_formation_type', True)
+        self.show_help = self.gui_config.get('show_help', False)
         
         # Input state
         self.keys_pressed = {}
@@ -51,13 +62,20 @@ class DroneSwarmGUI:
         self.drone_states = []
         self.sim_info = {}
         
-        # Clock for timing
+        # Timing
         self.clock = pygame.time.Clock()
+        self.start_time = time.time()
+        self.frame_count = 0
+        self.fps = 0.0
+        self.last_fps_update = time.time()
         
     def on_simulation_update(self, drone_states, sim_info):
         """Callback for receiving simulation updates."""
         self.drone_states = drone_states
         self.sim_info = sim_info
+        
+        # Update camera with drone states for locking
+        self.camera.set_drone_states(drone_states)
         
     def handle_events(self):
         """Handle pygame events."""
@@ -96,20 +114,33 @@ class DroneSwarmGUI:
                 self.width = event.w
                 self.height = event.h
                 self.renderer.resize(self.width, self.height)
+                self.overlay.resize(self.width, self.height)
+                
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 3:  # Right mouse button
+                    # Future: implement drone selection
+                    pass
                 
     def handle_key_press(self, key):
         """Handle specific key presses."""
         if key == 'escape':
             self.running = False
-        elif key == 'space':
+        elif key == 'p':  # P for pause (instead of space)
             self.paused = not self.paused
             if self.paused:
                 self.simulator.pause()
             else:
                 self.simulator.resume()
+        elif key == 'o':  # O for step simulation
+            if self.paused:
+                self.simulator.step_simulation()
+        elif key == 'h':  # H for help
+            self.show_help = not self.show_help
         elif key == 'r':
             # Reset camera
-            self.camera = Camera([15, 15, 15], [0, 5, 0])
+            smooth_camera = self.gui_config.get('smooth_camera', True)
+            smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
+            self.camera = Camera([15, 15, 15], [0, 5, 0], smooth_camera, smoothing_factor)
         elif key == 't':
             self.show_targets = not self.show_targets
         elif key == 'g':
@@ -117,6 +148,10 @@ class DroneSwarmGUI:
         elif key == 'x':
             self.show_axes = not self.show_axes
         elif key == 'c':
+            self.show_connections = not self.show_connections
+        elif key == 'l':  # L for labels
+            self.show_labels = not self.show_labels
+        elif key == 'f':  # F for formation lines
             self.show_connections = not self.show_connections
         elif key == '1':
             self.simulator.set_formation('line')
@@ -128,6 +163,14 @@ class DroneSwarmGUI:
             self.simulator.set_formation('v_formation')
         elif key == '0':
             self.simulator.set_formation('idle')
+        # Drone locking (1-9 keys for drone IDs)
+        elif key in '123456789':
+            drone_id = int(key) - 1
+            if drone_id < len(self.drone_states):
+                if self.camera.locked_drone_id == drone_id:
+                    self.camera.unlock_camera()
+                else:
+                    self.camera.lock_to_drone(drone_id)
             
     def render(self):
         """Render the 3D scene."""
@@ -156,6 +199,7 @@ class DroneSwarmGUI:
             color = drone_state['color']
             settled = drone_state['settled']
             size = self.config['drone']['size']
+            drone_id = drone_state['id']
             
             self.renderer.draw_drone(position, color, size, settled)
             
@@ -164,6 +208,13 @@ class DroneSwarmGUI:
                 target = drone_state['target']
                 self.renderer.draw_target(target, color)
                 
+            # Draw drone labels
+            if self.show_labels:
+                self.renderer.draw_drone_label(position, drone_id, color, self.camera.position)
+                
+        # Draw overlays
+        self.draw_overlays()
+                
         # Swap buffers
         pygame.display.flip()
         
@@ -171,14 +222,55 @@ class DroneSwarmGUI:
         """Update the GUI state."""
         dt = self.clock.tick(60) / 1000.0  # Convert to seconds
         
-        # Handle camera movement
-        self.camera.handle_keyboard(self.keys_pressed, dt)
+        # Update FPS counter
+        self.frame_count += 1
+        current_time = time.time()
+        if current_time - self.last_fps_update >= 1.0:  # Update every second
+            self.fps = self.frame_count / (current_time - self.last_fps_update)
+            self.frame_count = 0
+            self.last_fps_update = current_time
         
-    def draw_hud(self):
-        """Draw heads-up display with information (optional)."""
-        # Note: For simplicity, we're not implementing text rendering here
-        # In a full implementation, you could use pygame fonts or OpenGL text rendering
-        pass
+        # Handle camera movement and smooth interpolation
+        self.camera.handle_keyboard(self.keys_pressed, dt)
+        self.camera.update_smooth_movement(dt)
+        
+    def draw_overlays(self):
+        """Draw all GUI overlays."""
+        self.overlay.clear()
+        
+        # Draw FPS counter
+        if self.show_fps:
+            self.overlay.draw_fps(self.fps)
+            
+        # Draw simulation time
+        if self.show_sim_time:
+            elapsed = time.time() - self.start_time
+            self.overlay.draw_sim_time(elapsed)
+            
+        # Draw formation type
+        if self.show_formation_type:
+            formation = self.sim_info.get('current_formation', 'idle')
+            self.overlay.draw_formation_type(formation)
+            
+        # Draw drone count and status
+        if self.drone_states:
+            settled_count = sum(1 for drone in self.drone_states if drone['settled'])
+            self.overlay.draw_drone_count(len(self.drone_states), settled_count)
+            
+        # Draw camera info if locked to drone
+        if self.camera.locked_drone_id is not None:
+            self.overlay.draw_text(f"Camera locked to Drone {self.camera.locked_drone_id}", 10, 110, (255, 255, 0))
+            
+        # Draw pause indicator
+        if self.paused:
+            self.overlay.draw_text("PAUSED - Press P to resume, O to step", 10, 130, (255, 255, 0))
+            
+        # Draw help overlay
+        if self.show_help:
+            self.overlay.draw_help_overlay()
+            
+        # Render overlay to screen
+        self.overlay.render_to_screen()
         
     def run(self):
         """Main GUI loop."""
@@ -189,13 +281,25 @@ class DroneSwarmGUI:
         print("  Mouse wheel - Zoom")
         print("  1-4 - Formation patterns (Line, Circle, Grid, V)")
         print("  0 - Idle formation")
-        print("  Space - Pause/Resume")
+        print("  P - Pause/Resume")
+        print("  O - Step simulation (when paused)")
+        print("  H - Toggle help overlay")
         print("  T - Toggle targets")
         print("  G - Toggle grid")
         print("  X - Toggle axes")
-        print("  C - Toggle connections")
+        print("  C/F - Toggle formation connections")
+        print("  L - Toggle drone labels")
         print("  R - Reset camera")
+        print("  1-9 (hold) - Lock camera to drone")
         print("  ESC - Exit")
+        print("")
+        print("GUI Enhancements:")
+        print("  - FPS counter and simulation time display")
+        print("  - Drone ID labels above each drone")
+        print("  - Enhanced formation visualization")
+        print("  - Smooth camera interpolation")
+        print("  - Interactive pause/step controls")
+        print("  - Comprehensive help overlay (press H)")
         
         # Start simulation
         self.simulator.start()
@@ -203,7 +307,13 @@ class DroneSwarmGUI:
         try:
             while self.running:
                 self.handle_events()
-                self.update()
+                if not self.paused:  # Only update when not paused
+                    self.update()
+                else:
+                    # Still update camera and overlays when paused
+                    dt = self.clock.tick(60) / 1000.0
+                    self.camera.handle_keyboard(self.keys_pressed, dt)
+                    self.camera.update_smooth_movement(dt)
                 self.render()
                 
         finally:

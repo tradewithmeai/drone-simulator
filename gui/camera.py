@@ -5,10 +5,20 @@ from OpenGL.GL import *
 class Camera:
     """3D Camera with WASD movement, mouse rotation, and scroll zoom."""
     
-    def __init__(self, position=None, target=None):
+    def __init__(self, position=None, target=None, smooth_interpolation=True, smoothing_factor=0.1):
         self.position = np.array(position or [0, 10, 20], dtype=float)
         self.target = np.array(target or [0, 0, 0], dtype=float)
         self.up = np.array([0, 1, 0], dtype=float)
+        
+        # Smooth camera movement
+        self.smooth_interpolation = smooth_interpolation
+        self.smoothing_factor = smoothing_factor
+        self.target_position = self.position.copy()
+        self.target_target = self.target.copy()
+        
+        # Drone locking
+        self.locked_drone_id = None
+        self.drone_states = []
         
         # Movement settings
         self.move_speed = 10.0
@@ -83,6 +93,55 @@ class Camera:
         self.target += movement
         
         # Update spherical coordinates
+        direction = self.position - self.target
+        self.distance = np.linalg.norm(direction)
+        if self.distance > 0:
+            direction = direction / self.distance
+            self.phi = math.acos(np.clip(direction[1], -1, 1))
+            self.theta = math.atan2(direction[2], direction[0])
+            
+    def set_drone_states(self, drone_states):
+        """Update drone states for camera locking."""
+        self.drone_states = drone_states
+        
+    def lock_to_drone(self, drone_id):
+        """Lock camera to follow a specific drone."""
+        if drone_id is None:
+            self.locked_drone_id = None
+            return
+            
+        # Check if drone exists
+        if any(drone['id'] == drone_id for drone in self.drone_states):
+            self.locked_drone_id = drone_id
+        else:
+            self.locked_drone_id = None
+            
+    def unlock_camera(self):
+        """Unlock camera from drone following."""
+        self.locked_drone_id = None
+        
+    def update_smooth_movement(self, dt):
+        """Update smooth camera interpolation."""
+        if not self.smooth_interpolation:
+            return
+            
+        # Handle drone locking
+        if self.locked_drone_id is not None:
+            locked_drone = next((drone for drone in self.drone_states 
+                               if drone['id'] == self.locked_drone_id), None)
+            if locked_drone:
+                drone_pos = np.array(locked_drone['position'])
+                # Set target to drone position with slight offset
+                self.target_target = drone_pos
+                # Keep camera at relative position
+                offset = self.position - self.target
+                self.target_position = drone_pos + offset
+                
+        # Smooth interpolation
+        self.position += (self.target_position - self.position) * self.smoothing_factor
+        self.target += (self.target_target - self.target) * self.smoothing_factor
+        
+        # Update spherical coordinates based on current position
         direction = self.position - self.target
         self.distance = np.linalg.norm(direction)
         if self.distance > 0:

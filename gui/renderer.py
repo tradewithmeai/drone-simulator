@@ -175,4 +175,119 @@ class Renderer:
                     glVertex3f(pos[0], pos[1], pos[2])
                 glEnd()
                 
+        elif formation_type == "grid":
+            # Connect drones in grid pattern
+            grid_size = int(len(drone_states) ** 0.5)
+            if grid_size * grid_size == len(drone_states):
+                glBegin(GL_LINES)
+                for i in range(len(positions)):
+                    row, col = divmod(i, grid_size)
+                    
+                    # Connect to right neighbor
+                    if col < grid_size - 1:
+                        right_idx = i + 1
+                        if right_idx < len(positions):
+                            glVertex3f(positions[i][0], positions[i][1], positions[i][2])
+                            glVertex3f(positions[right_idx][0], positions[right_idx][1], positions[right_idx][2])
+                    
+                    # Connect to bottom neighbor
+                    if row < grid_size - 1:
+                        bottom_idx = i + grid_size
+                        if bottom_idx < len(positions):
+                            glVertex3f(positions[i][0], positions[i][1], positions[i][2])
+                            glVertex3f(positions[bottom_idx][0], positions[bottom_idx][1], positions[bottom_idx][2])
+                glEnd()
+                
         glEnable(GL_LIGHTING)
+        
+    def draw_drone_label(self, position, drone_id, color, camera_pos):
+        """Draw drone ID label above the drone."""
+        # Calculate billboard position (always face camera)
+        label_offset = np.array([0, 1.0, 0])  # 1 meter above drone
+        label_pos = np.array(position) + label_offset
+        
+        # Switch to 2D rendering for text
+        glDisable(GL_LIGHTING)
+        glDisable(GL_DEPTH_TEST)
+        
+        # Project 3D position to screen coordinates
+        modelview = glGetDoublev(GL_MODELVIEW_MATRIX)
+        projection = glGetDoublev(GL_PROJECTION_MATRIX)
+        viewport = glGetIntegerv(GL_VIEWPORT)
+        
+        try:
+            from OpenGL.GLU import gluProject
+            screen_x, screen_y, screen_z = gluProject(
+                label_pos[0], label_pos[1], label_pos[2],
+                modelview, projection, viewport
+            )
+            
+            # Only draw if in front of camera
+            if 0 < screen_z < 1:
+                # Set up 2D projection
+                glMatrixMode(GL_PROJECTION)
+                glPushMatrix()
+                glLoadIdentity()
+                glOrtho(0, viewport[2], viewport[3], 0, -1, 1)
+                
+                glMatrixMode(GL_MODELVIEW)
+                glPushMatrix()
+                glLoadIdentity()
+                
+                # Draw simple text as lines (basic implementation)
+                glColor3f(*color)
+                glLineWidth(2.0)
+                
+                # Draw drone ID number as simple lines
+                self._draw_number(int(drone_id), screen_x, screen_y)
+                
+                # Restore matrices
+                glPopMatrix()
+                glMatrixMode(GL_PROJECTION)
+                glPopMatrix()
+                glMatrixMode(GL_MODELVIEW)
+                
+        except ImportError:
+            # Fallback if gluProject not available
+            pass
+            
+        glEnable(GL_DEPTH_TEST)
+        glEnable(GL_LIGHTING)
+        
+    def _draw_number(self, number, x, y):
+        """Draw a number using simple line segments."""
+        # Very basic number drawing - just draw the number as lines
+        # This is a simplified implementation
+        digit_width = 8
+        digit_height = 12
+        
+        str_num = str(number)
+        start_x = x - (len(str_num) * digit_width) // 2
+        
+        for i, digit in enumerate(str_num):
+            digit_x = start_x + i * digit_width
+            self._draw_digit(int(digit), digit_x, y, digit_width, digit_height)
+            
+    def _draw_digit(self, digit, x, y, width, height):
+        """Draw a single digit using line segments."""
+        # Simple 7-segment display style digits
+        segments = {
+            0: [(0,0,1,0), (1,0,1,1), (1,1,0,1), (0,1,0,0), (0,0,0,1), (1,0,1,1)],
+            1: [(1,0,1,1)],
+            2: [(0,0,1,0), (1,0,1,0.5), (0,0.5,1,0.5), (0,0.5,0,1), (0,1,1,1)],
+            3: [(0,0,1,0), (1,0,1,0.5), (0,0.5,1,0.5), (1,0.5,1,1), (0,1,1,1)],
+            4: [(0,0,0,0.5), (0,0.5,1,0.5), (1,0,1,1)],
+            5: [(0,0,1,0), (0,0,0,0.5), (0,0.5,1,0.5), (1,0.5,1,1), (0,1,1,1)],
+            6: [(0,0,1,0), (0,0,0,1), (0,0.5,1,0.5), (1,0.5,1,1), (0,1,1,1)],
+            7: [(0,0,1,0), (1,0,1,1)],
+            8: [(0,0,1,0), (1,0,1,1), (1,1,0,1), (0,1,0,0), (0,0.5,1,0.5)],
+            9: [(0,0,1,0), (1,0,1,0.5), (0,0.5,1,0.5), (0,0,0,0.5), (1,0.5,1,1), (0,1,1,1)]
+        }
+        
+        if digit in segments:
+            glBegin(GL_LINES)
+            for seg in segments[digit]:
+                x1, y1, x2, y2 = seg
+                glVertex2f(x + x1 * width, y + y1 * height)
+                glVertex2f(x + x2 * width, y + y2 * height)
+            glEnd()

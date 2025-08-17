@@ -58,6 +58,17 @@ class Simulator:
         """Resume the simulation."""
         self.paused = False
         
+    def step_simulation(self):
+        """Step the simulation by one tick (useful when paused)."""
+        with self.lock:
+            self.swarm.update(self.dt)
+            
+            # Send state update to callback
+            if self.state_update_callback:
+                states = self.swarm.get_states()
+                sim_info = self.get_simulation_info()
+                self.state_update_callback(states, sim_info)
+        
     def set_formation(self, formation_type: str):
         """Set the formation pattern for the swarm."""
         with self.lock:

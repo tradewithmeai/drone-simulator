@@ -76,6 +76,7 @@ When running in GUI mode, you can interact with the simulation using:
 - **Mouse drag** - Rotate camera around target
 - **Mouse wheel** - Zoom in/out
 - **R** - Reset camera to default position
+- **1-9** - Lock camera to follow specific drone (press again to unlock)
 
 ### Formation Controls
 - **1** - Line formation
@@ -89,9 +90,13 @@ When running in GUI mode, you can interact with the simulation using:
 - **G** - Toggle ground grid
 - **X** - Toggle coordinate axes
 - **C** - Toggle formation connection lines
+- **F** - Toggle formation connection lines (alternative to C)
+- **L** - Toggle drone ID labels above each drone
 
 ### Simulation Controls
-- **Space** - Pause/Resume simulation
+- **P** - Pause/Resume simulation
+- **O** - Step simulation one tick forward (when paused)
+- **H** - Toggle help overlay with all controls
 - **ESC** - Exit application
 
 ## Visual Elements
@@ -100,12 +105,22 @@ When running in GUI mode, you can interact with the simulation using:
 - **Colored spheres** - Each drone is represented as a colored 3D sphere
 - **Bright colors** - Drones glow brighter when they've reached their target position
 - **Wireframe targets** - Small wireframe spheres show target positions (when enabled)
+- **ID labels** - Numeric labels above each drone showing drone ID (toggle with L)
 
 ### Scene Elements
 - **Ground grid** - Reference grid on the XZ plane
 - **Coordinate axes** - Red (X), Green (Y), Blue (Z) axes from origin
 - **Formation lines** - Gray lines connecting drones in formation patterns
 - **Lighting** - 3D lighting for realistic shading
+
+### On-Screen Overlays
+- **FPS counter** - Real-time frame rate display (top-left)
+- **Simulation time** - Elapsed simulation time in minutes
+- **Formation type** - Current active formation pattern
+- **Drone status** - Count of settled vs total drones
+- **Camera info** - Shows when camera is locked to a drone
+- **Pause indicator** - Visual feedback when simulation is paused
+- **Help overlay** - Comprehensive control reference (press H)
 
 ## Headless Mode Output
 
