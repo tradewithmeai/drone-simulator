@@ -163,31 +163,37 @@ class DroneSwarmGUI:
         elif key == 'f':  # F for formation lines
             self.show_connections = not self.show_connections
         elif key == '1':
-            self.simulator.set_formation('line')
+            if shift_pressed:
+                print("Shift+1 pressed - spawning line formation")
+                self.command_queue.append(('respawn', 'line'))
+            else:
+                self.simulator.set_formation('line')
         elif key == '2':
-            self.simulator.set_formation('circle')
+            if shift_pressed:
+                print("Shift+2 pressed - spawning circle formation")
+                self.command_queue.append(('respawn', 'circle'))
+            else:
+                self.simulator.set_formation('circle')
         elif key == '3':
-            self.simulator.set_formation('grid')
+            if shift_pressed:
+                print("Shift+3 pressed - spawning grid formation")
+                self.command_queue.append(('respawn', 'grid'))
+            else:
+                self.simulator.set_formation('grid')
         elif key == '4':
             if shift_pressed:
+                print("Shift+4 pressed - spawning v formation")
                 self.command_queue.append(('respawn', 'v'))
             else:
                 self.simulator.set_formation('v_formation')
-        elif key == '0':
-            self.simulator.set_formation('idle')
         elif key == '5':
             if shift_pressed:
+                print("Shift+5 pressed - spawning random formation")
                 self.command_queue.append(('respawn', 'random'))
-        # Shift+hotkeys for spawn presets
-        elif shift_pressed:
-            if key == '1':
-                self.command_queue.append(('respawn', 'line'))
-            elif key == '2':
-                self.command_queue.append(('respawn', 'circle'))
-            elif key == '3':
-                self.command_queue.append(('respawn', 'grid'))
-        # Drone locking (1-9 keys for drone IDs)
-        elif key in '123456789':
+        elif key == '0':
+            self.simulator.set_formation('idle')
+        # Drone locking (6-9 keys for drone IDs, avoiding conflict with formation keys)
+        elif key in '6789':
             drone_id = int(key) - 1
             if drone_id < len(self.drone_states):
                 if self.camera.locked_drone_id == drone_id:
@@ -221,7 +227,7 @@ class DroneSwarmGUI:
             position = drone_state['position']
             color = drone_state['color']
             settled = drone_state['settled']
-            size = self.config['drone']['size']
+            size = self.config['drones']['size']
             drone_id = drone_state['id']
             
             self.renderer.draw_drone(position, color, size, settled)
@@ -262,12 +268,19 @@ class DroneSwarmGUI:
         
     def _process_commands(self):
         """Process queued commands."""
-        while self.command_queue:
+        # Process only one command per frame to avoid blocking
+        if self.command_queue:
             command, *args = self.command_queue.pop(0)
             if command == 'respawn':
                 preset = args[0]
                 print(f"Respawning drones in '{preset}' formation...")
-                self.simulator.respawn_formation(preset)
+                try:
+                    self.simulator.respawn_formation(preset)
+                    print(f"Successfully respawned in '{preset}' formation")
+                except Exception as e:
+                    print(f"Error respawning: {e}")
+                    import traceback
+                    traceback.print_exc()
         
     def draw_overlays(self):
         """Draw all GUI overlays."""
@@ -329,7 +342,7 @@ class DroneSwarmGUI:
         print("  C/F - Toggle formation connections")
         print("  L - Toggle drone labels")
         print("  R - Reset camera")
-        print("  1-9 (hold) - Lock camera to drone")
+        print("  6-9 (hold) - Lock camera to drone")
         print("  ESC - Exit")
         print("")
         print("GUI Enhancements:")

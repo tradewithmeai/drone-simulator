@@ -9,7 +9,8 @@
       "Bash(gh auth:*)",
       "Bash(gh repo create:*)",
       "Bash(git push:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

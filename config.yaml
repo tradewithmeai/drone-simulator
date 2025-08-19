@@ -31,7 +31,7 @@ drones:
   spacing: 3.0                 # Inter-drone spacing (meters)
   seed: 42                     # Random seed for deterministic placement
   
-  # Drone appearance
+  # Drone appearance  
   size: 0.5                    # Drone size in meters
   colors:
     - [1.0, 0.0, 0.0]  # Red
