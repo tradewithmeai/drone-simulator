@@ -132,7 +132,7 @@ class Swarm:
     
     def respawn_formation(self, preset: str, num_drones: int = None, spacing: float = None, 
                          altitude: float = None, seed: int = None, up_axis: str = None):
-        """Respawn drones in a new formation preset with coordinate mapping.
+        """Respawn drones in a new formation preset with coordinate mapping and validation.
         
         Args:
             preset: Formation preset ('v', 'line', 'circle', 'grid', 'random')
@@ -141,36 +141,63 @@ class Swarm:
             altitude: Spawn altitude (None to keep current)
             seed: Random seed (None to keep current)
             up_axis: Coordinate system up-axis (None to keep current)
+            
+        Raises:
+            ValueError: If parameters are invalid
+            RuntimeError: If respawn operation fails
         """
         if num_drones is None:
             num_drones = len(self.drones)
         
-        # Update spawn settings if provided
-        if spacing is not None:
-            self.spacing = spacing
-        if altitude is not None:
-            self.spawn_altitude = altitude
-        if seed is not None:
-            self.spawn_seed = seed
-        if up_axis is not None:
-            self.up_axis = up_axis
+        # Validate parameters
+        if num_drones <= 0:
+            raise ValueError(f"Invalid drone count: {num_drones} (must be positive)")
+        if num_drones > 50:
+            raise ValueError(f"Drone count too large: {num_drones} (maximum 50 for stability)")
+            
+        if spacing is not None and spacing <= 0:
+            raise ValueError(f"Invalid spacing: {spacing} (must be positive)")
+        if up_axis is not None and up_axis not in ['x', 'y', 'z']:
+            raise ValueError(f"Invalid up_axis: '{up_axis}' (must be 'x', 'y', or 'z')")
+            
+        valid_presets = ['v', 'line', 'circle', 'grid', 'random']
+        if preset not in valid_presets:
+            raise ValueError(f"Invalid preset: '{preset}' (must be one of {valid_presets})")
         
-        # Clear existing drones
-        self.drones.clear()
-        
-        # Update spawn preset
-        self.spawn_preset = preset
-        
-        # Create new drones at mapped spawn positions
-        self._create_drones(num_drones)
-        
-        # Keep formation as idle initially (drones spawn at target positions)
-        self.current_formation = "idle"
-        
-        print(f"Respawned {num_drones} drones in '{preset}' formation (up_axis: {self.up_axis})")
+        try:
+            # Update spawn settings if provided
+            if spacing is not None:
+                self.spacing = spacing
+            if altitude is not None:
+                self.spawn_altitude = altitude
+            if seed is not None:
+                self.spawn_seed = seed
+            if up_axis is not None:
+                self.up_axis = up_axis
+            
+            # Clear existing drones safely
+            old_count = len(self.drones)
+            self.drones.clear()
+            
+            # Update spawn preset
+            self.spawn_preset = preset
+            
+            # Create new drones at mapped spawn positions
+            self._create_drones(num_drones)
+            
+            # Keep formation as idle initially (drones spawn at target positions)
+            self.current_formation = "idle"
+            
+            print(f"Respawned {num_drones} drones in '{preset}' formation (replaced {old_count}, up_axis: {self.up_axis})")
+            
+        except Exception as e:
+            # Restore a minimal working state on failure
+            self.drones.clear()
+            self.current_formation = "idle"
+            raise RuntimeError(f"Respawn failed, swarm cleared: {e}") from e
     
     def auto_spawn(self, count: int, preset: str, spacing: float, altitude: float, seed: int, up_axis: str):
-        """Auto-spawn drones at startup with full configuration.
+        """Auto-spawn drones at startup with full configuration and validation.
         
         Args:
             count: Number of drones to spawn
@@ -179,6 +206,30 @@ class Swarm:
             altitude: Spawn altitude
             seed: Random seed
             up_axis: Coordinate system up-axis
+            
+        Raises:
+            ValueError: If parameters are invalid
+            RuntimeError: If spawn operation fails
         """
+        # Validate input parameters
+        if count <= 0:
+            raise ValueError(f"Invalid drone count: {count} (must be positive)")
+        if count > 50:
+            raise ValueError(f"Drone count too large: {count} (maximum 50 for stability)")
+        if spacing <= 0:
+            raise ValueError(f"Invalid spacing: {spacing} (must be positive)")
+        if not isinstance(preset, str) or not preset.strip():
+            raise ValueError(f"Invalid preset: '{preset}' (must be non-empty string)")
+        if up_axis not in ['x', 'y', 'z']:
+            raise ValueError(f"Invalid up_axis: '{up_axis}' (must be 'x', 'y', or 'z')")
+            
+        valid_presets = ['v', 'line', 'circle', 'grid', 'random']
+        if preset not in valid_presets:
+            raise ValueError(f"Invalid preset: '{preset}' (must be one of {valid_presets})")
+            
         print(f"Auto-spawning {count} drones in '{preset}' formation...")
-        self.respawn_formation(preset, count, spacing, altitude, seed, up_axis)
+        try:
+            self.respawn_formation(preset, count, spacing, altitude, seed, up_axis)
+            print(f"Auto-spawn validation passed: {count} drones created successfully")
+        except Exception as e:
+            raise RuntimeError(f"Auto-spawn failed: {e}") from e

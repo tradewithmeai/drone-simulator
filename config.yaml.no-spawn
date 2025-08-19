@@ -24,7 +24,7 @@ drones:
   - - 0.5
     - 0.0
     - 1.0
-  count: 4
+  count: 0
   seed: 42
   size: 0.5
   spacing: 5.0
@@ -38,24 +38,24 @@ formation:
   - v_formation
   spacing: 3.0
 gui:
-  auto_spawn_on_start: true
+  auto_spawn_on_start: false
   background_color:
   - 0.1
   - 0.1
   - 0.2
   camera_smoothing: 0.1
-  enable_overlay: false
+  enable_overlay: true
   hud_color:
   - 0.0
   - 0.5
   - 1.0
   hud_font_size: 16
-  show_formation_lines: false
-  show_formation_type: false
-  show_fps: false
+  show_formation_lines: true
+  show_formation_type: true
+  show_fps: true
   show_help: false
   show_labels: false
-  show_sim_time: false
+  show_sim_time: true
   smooth_camera: false
   up_axis: y
   window_height: 600

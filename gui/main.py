@@ -68,7 +68,6 @@ class DroneSwarmGUI:
         self.keys_pressed = {}
         self.mouse_dragging = False
         self.last_mouse_pos = (0, 0)
-        self.command_queue = []  # Queue for respawn commands
         
         # Current drone states
         self.drone_states = []
@@ -146,7 +145,8 @@ class DroneSwarmGUI:
                 
     def handle_key_press(self, key, shift_pressed=False):
         """Handle specific key presses."""
-        if key == 'escape':
+        if key == 'escape' or key == 'q':
+            print("\n[EXIT] User requested exit, shutting down...")
             self.running = False
         elif key == 'p':  # P for pause (instead of space)
             self.paused = not self.paused
@@ -181,32 +181,32 @@ class DroneSwarmGUI:
             self.show_connections = not self.show_connections
         elif key == '1':
             if shift_pressed:
-                print("Shift+1 pressed - spawning line formation")
-                self.command_queue.append(('respawn', 'line'))
+                print("Shift+1 pressed - requesting line formation spawn")
+                self.simulator.respawn_formation('line')
             else:
                 self.simulator.set_formation('line')
         elif key == '2':
             if shift_pressed:
-                print("Shift+2 pressed - spawning circle formation")
-                self.command_queue.append(('respawn', 'circle'))
+                print("Shift+2 pressed - requesting circle formation spawn")
+                self.simulator.respawn_formation('circle')
             else:
                 self.simulator.set_formation('circle')
         elif key == '3':
             if shift_pressed:
-                print("Shift+3 pressed - spawning grid formation")
-                self.command_queue.append(('respawn', 'grid'))
+                print("Shift+3 pressed - requesting grid formation spawn")
+                self.simulator.respawn_formation('grid')
             else:
                 self.simulator.set_formation('grid')
         elif key == '4':
             if shift_pressed:
-                print("Shift+4 pressed - spawning v formation")
-                self.command_queue.append(('respawn', 'v'))
+                print("Shift+4 pressed - requesting v formation spawn")
+                self.simulator.respawn_formation('v')
             else:
                 self.simulator.set_formation('v_formation')
         elif key == '5':
             if shift_pressed:
-                print("Shift+5 pressed - spawning random formation")
-                self.command_queue.append(('respawn', 'random'))
+                print("Shift+5 pressed - requesting random formation spawn")
+                self.simulator.respawn_formation('random')
         elif key == '0':
             self.simulator.set_formation('idle')
         # Drone locking (6-9 keys for drone IDs, avoiding conflict with formation keys)
@@ -308,9 +308,6 @@ class DroneSwarmGUI:
         """Update the GUI state."""
         dt = self.clock.tick(60) / 1000.0  # Convert to seconds
         
-        # Process command queue
-        self._process_commands()
-        
         # Update FPS counter
         self.frame_count += 1
         current_time = time.time()
@@ -329,34 +326,6 @@ class DroneSwarmGUI:
             self.last_diagnostic_log = current_time
             self._log_diagnostics()
         
-    def _process_commands(self):
-        """Process queued commands."""
-        # Process only one command per frame to avoid blocking
-        if self.command_queue:
-            command, *args = self.command_queue.pop(0)
-            if command == 'respawn':
-                preset = args[0]
-                print(f"Respawning drones in '{preset}' formation...")
-                try:
-                    # Pause simulation during respawn to prevent conflicts
-                    was_paused = self.paused
-                    if not was_paused:
-                        self.simulator.pause()
-                    
-                    self.simulator.respawn_formation(preset)
-                    print(f"Successfully respawned in '{preset}' formation")
-                    
-                    # Resume if it wasn't paused before
-                    if not was_paused:
-                        self.simulator.resume()
-                        
-                except Exception as e:
-                    print(f"Error respawning: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # Make sure to resume simulation even if respawn failed
-                    if not was_paused and self.paused:
-                        self.simulator.resume()
                         
     def _log_diagnostics(self):
         """Log diagnostic information for debugging."""
@@ -446,11 +415,6 @@ class DroneSwarmGUI:
         if self.paused:
             self.overlay.draw_text("PAUSED - Press P to resume, O to step", 10, 170, (255, 255, 0))
             
-        # Draw command queue indicator
-        if self.command_queue:
-            queue_text = f"Commands queued: {len(self.command_queue)}"
-            self.overlay.draw_text(queue_text, 10, 190, (255, 255, 0))
-            
         # Draw help overlay
         if self.show_help:
             self.overlay.draw_help_overlay()
@@ -480,7 +444,7 @@ class DroneSwarmGUI:
         print("  R - Reset camera")
         print("  Home - Frame swarm (center camera on all drones)")
         print("  6-9 (hold) - Lock camera to drone")
-        print("  ESC - Exit")
+        print("  ESC/Q - Exit application")
         print("")
         print("GUI Enhancements:")
         print("  - FPS counter and simulation time display")
@@ -519,8 +483,11 @@ class DroneSwarmGUI:
                 
         finally:
             # Clean up
+            print("[EXIT] Stopping simulation...")
             self.simulator.stop()
+            print("[EXIT] Cleaning up GUI resources...")
             pygame.quit()
+            print("[EXIT] Shutdown complete.")
 
 def main():
     """Entry point for the GUI application."""

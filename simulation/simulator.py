@@ -44,6 +44,11 @@ class Simulator:
             'seed': seed,
             'up_axis': up_axis
         }
+        
+        # Auto-spawn tracking
+        self.auto_spawn_triggered = False
+        self.spawn_command_queue = []  # Queue for spawn commands
+        self.spawn_queue_lock = threading.Lock()  # Separate lock for spawn queue
         self.update_rate = self.config['simulation']['update_rate']
         self.dt = 1.0 / self.update_rate
         
@@ -97,33 +102,52 @@ class Simulator:
             self.swarm.set_formation(formation_type)
             
     def respawn_formation(self, preset: str, num_drones: int = None):
-        """Respawn drones in a new formation preset."""
-        with self.lock:
-            # Use config values for respawn if not specified
-            config = self.auto_spawn_config
-            self.swarm.respawn_formation(
-                preset, 
-                num_drones or config['count'],
-                config['spacing'],
-                config['altitude'], 
-                config['seed'],
-                config['up_axis']
-            )
+        """Queue respawn command to be processed by simulation thread."""
+        config = self.auto_spawn_config
+        
+        # For manual spawns, use a reasonable default instead of config count (which might be 0 in --no-spawn mode)
+        if num_drones is None:
+            if config['count'] > 0:
+                # Use config count if it's reasonable
+                default_count = config['count'] 
+            else:
+                # Use reasonable default for manual spawns (--no-spawn mode)
+                default_count = 5
+        else:
+            default_count = num_drones
+        
+        spawn_command = {
+            'type': 'respawn',
+            'preset': preset,
+            'count': default_count,
+            'spacing': config['spacing'],
+            'altitude': config['altitude'],
+            'seed': config['seed'],
+            'up_axis': config['up_axis']
+        }
+        
+        with self.spawn_queue_lock:
+            self.spawn_command_queue.append(spawn_command)
+            queue_size = len(self.spawn_command_queue)
+        print(f"[GUI-THREAD] Respawn command queued: {spawn_command['count']} drones in '{preset}' formation (queue size: {queue_size})")
             
     def trigger_auto_spawn(self):
-        """Trigger auto-spawn if enabled in configuration."""
+        """Queue auto-spawn command to be processed by simulation thread."""
         if self.auto_spawn_config['enabled']:
             config = self.auto_spawn_config
-            print("Triggering auto-spawn...")
-            with self.lock:
-                self.swarm.auto_spawn(
-                    config['count'],
-                    config['preset'],
-                    config['spacing'],
-                    config['altitude'],
-                    config['seed'],
-                    config['up_axis']
-                )
+            print("[GUI-THREAD] Queuing auto-spawn command...")
+            
+            spawn_command = {
+                'type': 'auto_spawn',
+                'config': config
+            }
+            
+            with self.spawn_queue_lock:
+                self.spawn_command_queue.append(spawn_command)
+                queue_size = len(self.spawn_command_queue)
+            print(f"[GUI-THREAD] Auto-spawn command queued: {config['count']} drones in '{config['preset']}' formation (queue size: {queue_size})")
+        else:
+            print("Auto-spawn disabled in configuration")
             
     def get_drone_states(self) -> list:
         """Get current state of all drones."""
@@ -153,6 +177,9 @@ class Simulator:
             actual_dt = current_time - last_time
             last_time = current_time
             
+            # Process spawn commands in simulation thread (thread-safe)
+            self._process_spawn_commands()
+            
             if not self.paused:
                 with self.lock:
                     # Update swarm with actual time delta
@@ -167,3 +194,72 @@ class Simulator:
             # Sleep to maintain target update rate
             sleep_time = max(0, self.dt - actual_dt)
             time.sleep(sleep_time)
+            
+    def _process_spawn_commands(self):
+        """Process queued spawn commands in the simulation thread (thread-safe)."""
+        # Check queue size for debugging
+        queue_size = 0
+        with self.spawn_queue_lock:
+            queue_size = len(self.spawn_command_queue)
+        
+        # Temporary debug: always log queue status to verify this method is being called
+        if queue_size > 0:
+            print(f"[SPAWN-DEBUG] Found {queue_size} commands in spawn queue")
+        
+        if queue_size == 0:
+            return
+        
+        print(f"[SPAWN-DEBUG] Processing spawn queue (size: {queue_size})")
+            
+        # Process one command per simulation tick to avoid blocking
+        command = None
+        with self.spawn_queue_lock:
+            if self.spawn_command_queue:
+                command = self.spawn_command_queue.pop(0)
+                remaining = len(self.spawn_command_queue)
+                print(f"[SPAWN-DEBUG] Dequeued command: {command['type']}, remaining: {remaining}")
+            else:
+                print("[SPAWN-DEBUG] Queue was empty when trying to dequeue")
+                return
+        
+        if command is None:
+            print("[SPAWN-DEBUG] Command is None after dequeue")
+            return
+        
+        # Execute spawn command with error handling
+        try:
+            if command['type'] == 'auto_spawn':
+                config = command['config']
+                print(f"[SIM-THREAD] Processing auto-spawn: {config['count']} drones...")
+                
+                with self.lock:
+                    self.swarm.auto_spawn(
+                        config['count'],
+                        config['preset'], 
+                        config['spacing'],
+                        config['altitude'],
+                        config['seed'],
+                        config['up_axis']
+                    )
+                actual_count = len(self.swarm.drones)
+                print(f"[SIM-THREAD] Auto-spawn completed: {actual_count} drones created in '{config['preset']}' formation")
+                
+            elif command['type'] == 'respawn':
+                print(f"[SIM-THREAD] Processing respawn: {command['count']} drones in '{command['preset']}' formation...")
+                
+                with self.lock:
+                    self.swarm.respawn_formation(
+                        command['preset'],
+                        command['count'],
+                        command['spacing'],
+                        command['altitude'],
+                        command['seed'],
+                        command['up_axis']
+                    )
+                actual_count = len(self.swarm.drones)
+                print(f"[SIM-THREAD] Respawn completed: {actual_count} drones created in '{command['preset']}' formation")
+                
+        except Exception as e:
+            print(f"[SIM-THREAD] Spawn command failed: {e}")
+            import traceback
+            traceback.print_exc()

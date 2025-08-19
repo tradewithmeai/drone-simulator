@@ -34,33 +34,65 @@ python main.py
 
 If you experience crashes or GUI issues, follow these steps to isolate the problem:
 
-#### 1. Test Headless Mode
+#### 1. Test Ultra-Safe Mode (Zero Drones)
+```bash
+python main.py --no-spawn
+```
+**Expected:** GUI loads with empty 3D scene, no drones, stable operation  
+**If this fails:** OpenGL/graphics driver issue
+
+#### 2. Test Headless Mode
 ```bash
 python main.py --headless
 ```
 **Expected:** Console output showing drones spawning, moving, and forming patterns  
 **If this fails:** Core simulation issue - check dependencies and config
 
-#### 2. Test Safe GUI Mode
+#### 3. Test Safe GUI Mode
 ```bash
 python main.py --safe-gui
 ```
 **Expected:** Minimal GUI with 6 drones, no overlays, stable rendering  
-**If this fails:** OpenGL/graphics driver issue
+**If this fails:** Threading or spawn-related issue
 
-#### 3. Test Full GUI
+#### 4. Test Full GUI
 ```bash
 python main.py
 ```
 **Expected:** Full featured GUI with overlays, 9 drones, all controls working
 
-### Safe Mode Features
+### Safety Mode Features
 
-Safe mode (`--safe-gui`) automatically disables potentially problematic features:
-- Reduces drones to 6 (from 9)
+The simulator offers multiple safety levels for troubleshooting:
+
+**Ultra-Safe Mode (`--no-spawn`):**
+- Zero drones at startup (manual spawn only)
+- All GUI features enabled for testing
+- Eliminates spawn-related threading issues
+
+**Safe Mode (`--safe-gui`):**
+- Reduces drones to 4 (from 9) for stability testing
 - Disables all overlays (FPS, labels, formation info)  
 - Disables formation connection lines
-- Maintains auto-spawn and basic 3D rendering
+- Enables auto-spawn to test spawn system functionality
+- Maintains basic 3D rendering and interaction
+
+### Threading & Stability Improvements
+
+Recent stability enhancements include:
+- **Thread-safe spawn system**: All drone creation operations moved to simulation thread
+- **Single command queue**: Eliminated GUI/simulation thread conflicts by using single command queue
+- **Comprehensive validation**: Input parameter validation with clear error messages
+- **Graceful error handling**: Spawn failures don't crash the entire application
+- **Debug logging**: Detailed spawn operation tracking for troubleshooting
+- **Progressive testing**: Multiple safety modes for systematic debugging
+
+### ✅ Known Issues Fixed
+
+**GUI Crashes During Spawn (Resolved):**
+- **Root Cause**: Competing command queue systems caused threading deadlocks
+- **Solution**: Eliminated GUI command queue, direct all spawn commands to simulation thread
+- **Result**: Shift+1-5 spawn commands now work reliably without crashes
 
 ## 🎮 Controls
 
@@ -97,7 +129,8 @@ Safe mode (`--safe-gui`) automatically disables potentially problematic features
 - **P**: Pause/Resume simulation
 - **O**: Step simulation one tick (when paused)
 - **H**: Toggle help overlay
-- **ESC**: Exit application
+- **ESC/Q**: Exit application cleanly
+- **Ctrl+C**: Force exit (terminal)
 
 ## ⚙️ Configuration
 

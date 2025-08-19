@@ -10,7 +10,10 @@
       "Bash(gh repo create:*)",
       "Bash(git push:*)",
       "Bash(git reset:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(timeout:*)",
+      "Bash(del test_spawn.py)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []

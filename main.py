@@ -58,6 +58,8 @@ def run_gui_simulation(config_path="config.yaml"):
         print("Starting 3D GUI...")
         gui = DroneSwarmGUI(config_path)
         gui.run()
+    except KeyboardInterrupt:
+        print("\n[EXIT] Ctrl+C detected, shutting down GUI...")
     except ImportError as e:
         print(f"Error: GUI dependencies not available: {e}")
         print("Please install GUI dependencies:")
@@ -79,6 +81,8 @@ def main():
                        help='Force GUI mode (ignore config)')
     parser.add_argument('--safe-gui', action='store_true',
                        help='Run GUI in safe mode with minimal features')
+    parser.add_argument('--no-spawn', action='store_true',
+                       help='Ultra-safe mode: start with zero drones (manual spawn only)')
     
     args = parser.parse_args()
     
@@ -94,10 +98,22 @@ def main():
         sys.exit(1)
     
     # Apply safe mode overrides if requested
-    if args.safe_gui:
+    if args.no_spawn:
+        print("ULTRA-SAFE MODE: Starting with zero drones (manual spawn only)")
+        # Ultra-safe: no drones at startup, no auto-spawn
+        config['drones']['count'] = 0
+        config['gui']['auto_spawn_on_start'] = False
+        config['gui']['enable_overlay'] = True  # Keep overlays for feedback
+        
+        # Save modified config
+        with open(args.config + '.no-spawn', 'w') as f:
+            yaml.dump(config, f)
+        args.config = args.config + '.no-spawn'
+        
+    elif args.safe_gui:
         print("SAFE MODE: Applying minimal configuration for stability")
         # Reduce complexity for safe mode
-        config['drones']['count'] = 6
+        config['drones']['count'] = 4  # Reduce to 4 drones for stability testing
         config['gui']['show_fps'] = False
         config['gui']['show_sim_time'] = False
         config['gui']['show_formation_type'] = False
@@ -105,7 +121,7 @@ def main():
         config['gui']['show_formation_lines'] = False
         config['gui']['show_help'] = False
         config['gui']['enable_overlay'] = False
-        config['gui']['auto_spawn_on_start'] = True
+        config['gui']['auto_spawn_on_start'] = True  # ENABLE auto-spawn to test spawn system
         
         # Save modified config for GUI to use
         with open(args.config + '.safe', 'w') as f:
@@ -117,7 +133,7 @@ def main():
     
     if args.headless:
         use_gui = False
-    elif args.gui or args.safe_gui:
+    elif args.gui or args.safe_gui or args.no_spawn:
         use_gui = True
     
     # Start appropriate mode
