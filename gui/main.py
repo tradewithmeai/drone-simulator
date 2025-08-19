@@ -83,6 +83,9 @@ class DroneSwarmGUI:
         # Auto-spawn flag
         self.auto_spawn_triggered = False
         
+        # Pending spawn check (for confirming spawn results)
+        self.pending_spawn_check = None
+        
         # Diagnostic logging
         self.last_diagnostic_log = time.time()
         self.diagnostic_interval = 5.0  # Log every 5 seconds
@@ -183,30 +186,40 @@ class DroneSwarmGUI:
             if shift_pressed:
                 print("Shift+1 pressed - requesting line formation spawn")
                 self.simulator.respawn_formation('line')
+                # Schedule a drone count check for next frame
+                self.pending_spawn_check = ('line', time.time())
             else:
                 self.simulator.set_formation('line')
         elif key == '2':
             if shift_pressed:
                 print("Shift+2 pressed - requesting circle formation spawn")
                 self.simulator.respawn_formation('circle')
+                # Schedule a drone count check for next frame
+                self.pending_spawn_check = ('circle', time.time())
             else:
                 self.simulator.set_formation('circle')
         elif key == '3':
             if shift_pressed:
                 print("Shift+3 pressed - requesting grid formation spawn")
                 self.simulator.respawn_formation('grid')
+                # Schedule a drone count check for next frame
+                self.pending_spawn_check = ('grid', time.time())
             else:
                 self.simulator.set_formation('grid')
         elif key == '4':
             if shift_pressed:
                 print("Shift+4 pressed - requesting v formation spawn")
                 self.simulator.respawn_formation('v')
+                # Schedule a drone count check for next frame
+                self.pending_spawn_check = ('v', time.time())
             else:
                 self.simulator.set_formation('v_formation')
         elif key == '5':
             if shift_pressed:
                 print("Shift+5 pressed - requesting random formation spawn")
                 self.simulator.respawn_formation('random')
+                # Schedule a drone count check for next frame
+                self.pending_spawn_check = ('random', time.time())
         elif key == '0':
             self.simulator.set_formation('idle')
         # Drone locking (6-9 keys for drone IDs, avoiding conflict with formation keys)
@@ -307,6 +320,19 @@ class DroneSwarmGUI:
     def update(self):
         """Update the GUI state."""
         dt = self.clock.tick(60) / 1000.0  # Convert to seconds
+        
+        # Check for pending spawn confirmation
+        if self.pending_spawn_check:
+            formation_type, request_time = self.pending_spawn_check
+            # Give spawn operation time to complete (check after 0.1 seconds)
+            if time.time() - request_time > 0.1:
+                info = self.simulator.get_simulation_info()
+                drone_count = info.get('num_drones', 0)
+                if drone_count > 0:
+                    print(f"✅ Spawn confirmed: {drone_count} drones active in {formation_type} formation")
+                else:
+                    print(f"⚠️ Spawn result: {drone_count} drones (may still be processing...)")
+                self.pending_spawn_check = None
         
         # Update FPS counter
         self.frame_count += 1

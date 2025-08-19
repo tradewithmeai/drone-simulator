@@ -180,16 +180,16 @@ class Simulator:
             # Process spawn commands in simulation thread (thread-safe)
             self._process_spawn_commands()
             
-            if not self.paused:
-                with self.lock:
-                    # Update swarm with actual time delta
+            with self.lock:
+                if not self.paused:
+                    # Update physics only when not paused
                     self.swarm.update(actual_dt)
-                    
-                    # Send state update to callback (e.g., GUI)
-                    if self.state_update_callback:
-                        states = self.swarm.get_states()
-                        sim_info = self.get_simulation_info()
-                        self.state_update_callback(states, sim_info)
+
+                # Always push states (paused or not) so GUI can render and HUD stays live
+                if self.state_update_callback:
+                    states = self.swarm.get_states()
+                    sim_info = self.get_simulation_info()
+                    self.state_update_callback(states, sim_info)
                         
             # Sleep to maintain target update rate
             sleep_time = max(0, self.dt - actual_dt)
@@ -202,9 +202,6 @@ class Simulator:
         with self.spawn_queue_lock:
             queue_size = len(self.spawn_command_queue)
         
-        # Temporary debug: always log queue status to verify this method is being called
-        if queue_size > 0:
-            print(f"[SPAWN-DEBUG] Found {queue_size} commands in spawn queue")
         
         if queue_size == 0:
             return
@@ -241,6 +238,13 @@ class Simulator:
                         config['seed'],
                         config['up_axis']
                     )
+                    
+                    # Immediately push a state snapshot so GUI sees drones this frame
+                    if self.state_update_callback:
+                        states = self.swarm.get_states()
+                        sim_info = self.get_simulation_info()
+                        self.state_update_callback(states, sim_info)
+                        
                 actual_count = len(self.swarm.drones)
                 print(f"[SIM-THREAD] Auto-spawn completed: {actual_count} drones created in '{config['preset']}' formation")
                 
@@ -256,6 +260,13 @@ class Simulator:
                         command['seed'],
                         command['up_axis']
                     )
+                    
+                    # Immediately push a state snapshot so GUI sees drones this frame
+                    if self.state_update_callback:
+                        states = self.swarm.get_states()
+                        sim_info = self.get_simulation_info()
+                        self.state_update_callback(states, sim_info)
+                        
                 actual_count = len(self.swarm.drones)
                 print(f"[SIM-THREAD] Respawn completed: {actual_count} drones created in '{command['preset']}' formation")
                 
