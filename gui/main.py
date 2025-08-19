@@ -5,10 +5,10 @@ import time
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-from .camera import Camera
-from .renderer import Renderer
-from .overlay import TextOverlay
-from ..simulation.simulator import Simulator
+from gui.camera import Camera
+from gui.renderer import Renderer
+from gui.overlay import TextOverlay
+from simulation.simulator import Simulator
 
 class DroneSwarmGUI:
     """Main GUI class for 3D drone swarm visualization."""
@@ -25,7 +25,7 @@ class DroneSwarmGUI:
         
         # Initialize pygame and OpenGL
         pygame.init()
-        pygame.display.set_mode((self.width, self.height), pygame.DOUBLEBUF | pygame.OPENGL)
+        pygame.display.set_mode((self.width, self.height), pygame.DOUBLEBUF | pygame.OPENGL | pygame.RESIZABLE)
         pygame.display.set_caption("Drone Swarm 3D Simulator")
         
         # Initialize components
@@ -33,8 +33,12 @@ class DroneSwarmGUI:
         smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
         self.camera = Camera([15, 15, 15], [0, 5, 0], smooth_camera, smoothing_factor)
         self.renderer = Renderer(self.width, self.height, self.background_color)
+        # Convert HUD color from 0-1 range to 0-255 range for pygame
+        hud_color_01 = self.gui_config.get('hud_color', [1.0, 1.0, 1.0])
+        hud_color_255 = tuple(int(c * 255) for c in hud_color_01)
         self.overlay = TextOverlay(self.width, self.height, 
-                                 self.gui_config.get('hud_font_size', 16))
+                                 self.gui_config.get('hud_font_size', 16),
+                                 hud_color_255)
         
         # Initialize simulation
         self.simulator = Simulator(config_path)
@@ -307,13 +311,7 @@ class DroneSwarmGUI:
         try:
             while self.running:
                 self.handle_events()
-                if not self.paused:  # Only update when not paused
-                    self.update()
-                else:
-                    # Still update camera and overlays when paused
-                    dt = self.clock.tick(60) / 1000.0
-                    self.camera.handle_keyboard(self.keys_pressed, dt)
-                    self.camera.update_smooth_movement(dt)
+                self.update()  # Always update to maintain frame timing
                 self.render()
                 
         finally:

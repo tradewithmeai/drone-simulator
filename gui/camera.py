@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from OpenGL.GL import *
+from OpenGL.GLU import *
 
 class Camera:
     """3D Camera with WASD movement, mouse rotation, and scroll zoom."""
@@ -68,9 +69,18 @@ class Camera:
         
         # Calculate camera vectors
         forward = self.target - self.position
-        forward = forward / np.linalg.norm(forward)
+        forward_norm = np.linalg.norm(forward)
+        if forward_norm > 0:
+            forward = forward / forward_norm
+        else:
+            forward = np.array([0, 0, -1])  # Default forward direction
+            
         right = np.cross(forward, self.up)
-        right = right / np.linalg.norm(right)
+        right_norm = np.linalg.norm(right)
+        if right_norm > 0:
+            right = right / right_norm
+        else:
+            right = np.array([1, 0, 0])  # Default right direction
         
         # Movement
         movement = np.zeros(3)

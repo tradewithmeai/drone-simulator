@@ -3,8 +3,8 @@
 # GUI Settings
 use_gui: true
 gui:
-  window_width: 1024
-  window_height: 768
+  window_width: 800
+  window_height: 600
   background_color: [0.1, 0.1, 0.2]
   
   # Display toggles
@@ -16,12 +16,12 @@ gui:
   show_help: false  # Help overlay
   
   # Camera settings
-  smooth_camera: true
+  smooth_camera: false  # Temporarily disabled to debug
   camera_smoothing: 0.1  # Interpolation factor (0-1)
   
   # HUD settings
   hud_font_size: 16
-  hud_color: [1.0, 1.0, 1.0]  # White text
+  hud_color: [0.0, 0.5, 1.0]  # Blue text
   
 # Simulation Settings
 simulation:

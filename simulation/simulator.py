@@ -2,7 +2,7 @@ import time
 import threading
 from typing import Dict, Any, Optional, Callable
 import yaml
-from .swarm import Swarm
+from simulation.swarm import Swarm
 
 class Simulator:
     """Main simulation engine that manages the drone swarm."""

@@ -1,7 +1,7 @@
 import numpy as np
 from typing import List, Dict, Any
 import math
-from .drone import Drone
+from simulation.drone import Drone
 
 class Swarm:
     """Manages multiple drones and formation control."""

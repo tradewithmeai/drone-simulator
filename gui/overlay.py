@@ -106,8 +106,8 @@ class TextOverlay:
             
     def render_to_screen(self):
         """Render the overlay to the OpenGL context."""
-        # Convert pygame surface to OpenGL texture
-        texture_data = pygame.image.tostring(self.surface, "RGBA", True)
+        # Convert pygame surface to OpenGL texture (flip vertically for OpenGL)
+        texture_data = pygame.image.tostring(self.surface, "RGBA", False)
         
         # Save current OpenGL state
         glPushAttrib(GL_ALL_ATTRIB_BITS)

@@ -1,0 +1,5 @@
+# Minimal requirements without version constraints
+pygame
+PyOpenGL
+numpy
+pyyaml
