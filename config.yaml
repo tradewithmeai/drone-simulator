@@ -10,6 +10,7 @@ gui:
   up_axis: "y"                 # Coordinate system: "y" (Y-up) or "z" (Z-up)
   
   # Display toggles
+  enable_overlay: true         # Master switch for all overlays (disable for stability)
   show_fps: true
   show_sim_time: true
   show_formation_type: true

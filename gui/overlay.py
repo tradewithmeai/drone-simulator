@@ -16,6 +16,15 @@ class TextOverlay:
         # Create surface for text rendering
         self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
         
+        # Allocate persistent texture to avoid recreation each frame
+        self._texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self._texture_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        # Pre-allocate texture storage
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.width, self.height, 0, 
+                     GL_RGBA, GL_UNSIGNED_BYTE, None)
+        
     def clear(self):
         """Clear the overlay surface."""
         self.surface.fill((0, 0, 0, 0))  # Transparent
@@ -105,8 +114,8 @@ class TextOverlay:
             y_offset += 20
             
     def render_to_screen(self):
-        """Render the overlay to the OpenGL context."""
-        # Convert pygame surface to OpenGL texture (flip vertically for OpenGL)
+        """Render the overlay to the OpenGL context using persistent texture."""
+        # Convert pygame surface to OpenGL texture data
         texture_data = pygame.image.tostring(self.surface, "RGBA", False)
         
         # Save current OpenGL state
@@ -128,13 +137,11 @@ class TextOverlay:
         glPushMatrix()
         glLoadIdentity()
         
-        # Create and bind texture
-        texture_id = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, texture_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.width, self.height, 0, 
-                     GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
+        # Bind and update persistent texture (do not recreate)
+        glBindTexture(GL_TEXTURE_2D, self._texture_id)
+        # Update texture data without reallocating
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, self.width, self.height,
+                       GL_RGBA, GL_UNSIGNED_BYTE, texture_data)
         
         # Draw textured quad
         glEnable(GL_TEXTURE_2D)
@@ -147,8 +154,7 @@ class TextOverlay:
         glTexCoord2f(0, 1); glVertex2f(0, self.height)
         glEnd()
         
-        # Clean up
-        glDeleteTextures([texture_id])
+        # Clean up (do NOT delete texture - it's persistent)
         glDisable(GL_TEXTURE_2D)
         
         # Restore matrices
@@ -165,3 +171,21 @@ class TextOverlay:
         self.width = width
         self.height = height
         self.surface = pygame.Surface((width, height), pygame.SRCALPHA)
+        
+        # Reallocate texture for new size
+        if hasattr(self, '_texture_id'):
+            glDeleteTextures([self._texture_id])
+            self._texture_id = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, self._texture_id)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, self.width, self.height, 0, 
+                        GL_RGBA, GL_UNSIGNED_BYTE, None)
+    
+    def __del__(self):
+        """Clean up persistent texture on deletion."""
+        if hasattr(self, '_texture_id'):
+            try:
+                glDeleteTextures([self._texture_id])
+            except:
+                pass  # OpenGL context might already be destroyed

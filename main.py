@@ -77,6 +77,8 @@ def main():
                        help='Force headless mode (ignore GUI config)')
     parser.add_argument('--gui', action='store_true',
                        help='Force GUI mode (ignore config)')
+    parser.add_argument('--safe-gui', action='store_true',
+                       help='Run GUI in safe mode with minimal features')
     
     args = parser.parse_args()
     
@@ -91,12 +93,31 @@ def main():
         print(f"Error parsing configuration file: {e}")
         sys.exit(1)
     
+    # Apply safe mode overrides if requested
+    if args.safe_gui:
+        print("SAFE MODE: Applying minimal configuration for stability")
+        # Reduce complexity for safe mode
+        config['drones']['count'] = 6
+        config['gui']['show_fps'] = False
+        config['gui']['show_sim_time'] = False
+        config['gui']['show_formation_type'] = False
+        config['gui']['show_labels'] = False
+        config['gui']['show_formation_lines'] = False
+        config['gui']['show_help'] = False
+        config['gui']['enable_overlay'] = False
+        config['gui']['auto_spawn_on_start'] = True
+        
+        # Save modified config for GUI to use
+        with open(args.config + '.safe', 'w') as f:
+            yaml.dump(config, f)
+        args.config = args.config + '.safe'
+    
     # Determine whether to use GUI
     use_gui = config.get('use_gui', False)
     
     if args.headless:
         use_gui = False
-    elif args.gui:
+    elif args.gui or args.safe_gui:
         use_gui = True
     
     # Start appropriate mode

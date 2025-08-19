@@ -1,0 +1,67 @@
+drones:
+  colors:
+  - - 1.0
+    - 0.0
+    - 0.0
+  - - 0.0
+    - 1.0
+    - 0.0
+  - - 0.0
+    - 0.0
+    - 1.0
+  - - 1.0
+    - 1.0
+    - 0.0
+  - - 1.0
+    - 0.0
+    - 1.0
+  - - 0.0
+    - 1.0
+    - 1.0
+  - - 1.0
+    - 0.5
+    - 0.0
+  - - 0.5
+    - 0.0
+    - 1.0
+  count: 6
+  seed: 42
+  size: 0.5
+  spacing: 5.0
+  spawn_altitude: 10.0
+  spawn_preset: v
+formation:
+  patterns:
+  - line
+  - circle
+  - grid
+  - v_formation
+  spacing: 3.0
+gui:
+  auto_spawn_on_start: true
+  background_color:
+  - 0.1
+  - 0.1
+  - 0.2
+  camera_smoothing: 0.1
+  enable_overlay: false
+  hud_color:
+  - 0.0
+  - 0.5
+  - 1.0
+  hud_font_size: 16
+  show_formation_lines: false
+  show_formation_type: false
+  show_fps: false
+  show_help: false
+  show_labels: false
+  show_sim_time: false
+  smooth_camera: false
+  up_axis: y
+  window_height: 600
+  window_width: 800
+simulation:
+  max_acceleration: 5.0
+  max_speed: 10.0
+  update_rate: 60
+use_gui: true

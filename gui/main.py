@@ -6,7 +6,10 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 
 from gui.camera import Camera
-from gui.renderer import Renderer
+try:
+    from gui.renderer_optimized import Renderer
+except ImportError:
+    from gui.renderer import Renderer  # Fallback to original
 from gui.overlay import TextOverlay
 from simulation.simulator import Simulator
 
@@ -59,6 +62,7 @@ class DroneSwarmGUI:
         self.show_sim_time = self.gui_config.get('show_sim_time', True)
         self.show_formation_type = self.gui_config.get('show_formation_type', True)
         self.show_help = self.gui_config.get('show_help', False)
+        self.enable_overlay = self.gui_config.get('enable_overlay', True)
         
         # Input state
         self.keys_pressed = {}
@@ -79,6 +83,10 @@ class DroneSwarmGUI:
         
         # Auto-spawn flag
         self.auto_spawn_triggered = False
+        
+        # Diagnostic logging
+        self.last_diagnostic_log = time.time()
+        self.diagnostic_interval = 5.0  # Log every 5 seconds
         
     def on_simulation_update(self, drone_states, sim_info):
         """Callback for receiving simulation updates."""
@@ -218,40 +226,80 @@ class DroneSwarmGUI:
         # Apply camera
         self.camera.apply_view_matrix()
         
-        # Draw grid and axes
-        if self.show_grid:
-            self.renderer.draw_grid()
-        if self.show_axes:
-            self.renderer.draw_axes()
+        # Batch render unlit elements (grid, axes, connections, targets)
+        if hasattr(self.renderer, 'begin_unlit_section'):
+            # Using optimized renderer with batched state changes
+            self.renderer.begin_unlit_section()
             
-        # Draw formation connections
-        if self.show_connections and self.sim_info.get('current_formation') != 'idle':
-            self.renderer.draw_formation_connections(
-                self.drone_states, 
-                self.sim_info.get('current_formation', '')
-            )
-            
-        # Draw drones
-        for drone_state in self.drone_states:
-            position = drone_state['position']
-            color = drone_state['color']
-            settled = drone_state['settled']
-            size = self.config['drones']['size']
-            drone_id = drone_state['id']
-            
-            self.renderer.draw_drone(position, color, size, settled)
-            
-            # Draw target position
+            # Draw grid and axes
+            if self.show_grid:
+                self.renderer.draw_grid()
+            if self.show_axes:
+                self.renderer.draw_axes()
+                
+            # Draw formation connections
+            if self.show_connections and self.sim_info.get('current_formation') != 'idle':
+                self.renderer.draw_formation_connections(
+                    self.drone_states, 
+                    self.sim_info.get('current_formation', '')
+                )
+                
+            # Draw all targets
             if self.show_targets:
-                target = drone_state['target']
-                self.renderer.draw_target(target, color)
+                self.renderer.draw_all_targets(self.drone_states)
                 
-            # Draw drone labels
-            if self.show_labels:
-                self.renderer.draw_drone_label(position, drone_id, color, self.camera.position)
+            self.renderer.end_unlit_section()
+            
+            # Draw all drones with lighting enabled (batched)
+            if self.drone_states:
+                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
+            
+            # Draw all labels (batched, no depth test)
+            if self.show_labels and self.drone_states:
+                self.renderer.begin_unlit_section()
+                self.renderer.draw_all_labels(self.drone_states, self.camera.position)
+                self.renderer.end_unlit_section()
+        else:
+            # Fallback to original renderer
+            # Draw grid and axes
+            if self.show_grid:
+                self.renderer.draw_grid()
+            if self.show_axes:
+                self.renderer.draw_axes()
                 
-        # Draw overlays
-        self.draw_overlays()
+            # Draw formation connections
+            if self.show_connections and self.sim_info.get('current_formation') != 'idle':
+                self.renderer.draw_formation_connections(
+                    self.drone_states, 
+                    self.sim_info.get('current_formation', '')
+                )
+                
+            # Draw drones
+            for drone_state in self.drone_states:
+                position = drone_state['position']
+                color = drone_state['color']
+                settled = drone_state['settled']
+                size = self.config['drones']['size']
+                drone_id = drone_state['id']
+                
+                self.renderer.draw_drone(position, color, size, settled)
+                
+                # Draw target position
+                if self.show_targets:
+                    target = drone_state['target']
+                    self.renderer.draw_target(target, color)
+                    
+                # Draw drone labels
+                if self.show_labels:
+                    self.renderer.draw_drone_label(position, drone_id, color, self.camera.position)
+                
+        # Draw overlays with error handling
+        if self.enable_overlay:
+            try:
+                self.draw_overlays()
+            except Exception as e:
+                print(f"[OVERLAY-OFF] HUD crashed, disabling overlay: {e}")
+                self.enable_overlay = False
                 
         # Swap buffers
         pygame.display.flip()
@@ -274,6 +322,12 @@ class DroneSwarmGUI:
         # Handle camera movement and smooth interpolation
         self.camera.handle_keyboard(self.keys_pressed, dt)
         self.camera.update_smooth_movement(dt)
+        
+        # Diagnostic logging every N seconds
+        current_time = time.time()
+        if current_time - self.last_diagnostic_log >= self.diagnostic_interval:
+            self.last_diagnostic_log = current_time
+            self._log_diagnostics()
         
     def _process_commands(self):
         """Process queued commands."""
@@ -304,6 +358,23 @@ class DroneSwarmGUI:
                     if not was_paused and self.paused:
                         self.simulator.resume()
                         
+    def _log_diagnostics(self):
+        """Log diagnostic information for debugging."""
+        print(f"[DIAGNOSTIC] Time: {time.time() - self.start_time:.1f}s | "
+              f"FPS: {self.fps:.1f} | "
+              f"Drones: {len(self.drone_states)} | "
+              f"Camera: ({self.camera.position[0]:.1f}, {self.camera.position[1]:.1f}, {self.camera.position[2]:.1f}) | "
+              f"Overlay: {self.enable_overlay} | "
+              f"Formation: {self.sim_info.get('current_formation', 'none')}")
+        
+        # Log any critical issues
+        if self.fps < 10 and self.fps > 0:
+            print(f"[WARNING] Low FPS detected: {self.fps:.1f}")
+        if not self.drone_states:
+            print("[WARNING] No drone states received")
+        if not self.enable_overlay:
+            print("[INFO] Overlay disabled (likely due to error)")
+    
     def frame_swarm(self):
         """Frame camera to show all drones."""
         if not self.drone_states:
