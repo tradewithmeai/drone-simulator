@@ -3,32 +3,42 @@ from typing import List, Dict, Any
 import math
 from simulation.drone import Drone
 from simulation.spawn import make_positions
+from simulation.coords import map_positions_list
 
 class Swarm:
     """Manages multiple drones and formation control."""
     
     def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0, 
-                 spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42):
+                 spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42, up_axis: str = "y"):
         self.spacing = spacing
         self.spawn_preset = spawn_preset
         self.spawn_altitude = spawn_altitude
         self.spawn_seed = seed
+        self.up_axis = up_axis
         self.drone_colors = drone_colors
         self.drones = []
         
-        # Create initial drones using spawn positions
-        self._create_drones(num_drones)
+        # Create initial drones using spawn positions (only if num_drones > 0)
+        if num_drones > 0:
+            self._create_drones(num_drones)
             
         self.current_formation = "idle"
         
     def _create_drones(self, num_drones: int):
-        """Create drones at spawn positions."""
+        """Create drones at spawn positions with coordinate mapping."""
+        # Generate spawn positions
         positions = make_positions(num_drones, self.spawn_preset, self.spacing, self.spawn_altitude, self.spawn_seed)
         
+        # Apply coordinate mapping based on up_axis
+        mapped_positions = map_positions_list(positions, self.up_axis)
+        
+        # Create drones at mapped positions
         for i in range(num_drones):
-            position = positions[i] if i < len(positions) else [0, self.spawn_altitude, 0]
+            position = mapped_positions[i] if i < len(mapped_positions) else [0, self.spawn_altitude, 0]
             color = self.drone_colors[i % len(self.drone_colors)]
             drone = Drone(i, position, color)
+            # Set both position and target to spawned location
+            drone.target_position = position.copy() 
             self.drones.append(drone)
         
     def update(self, delta_time: float):
@@ -120,29 +130,55 @@ class Swarm:
         settled_count = sum(1 for drone in self.drones if drone.settled)
         return settled_count / len(self.drones)
     
-    def respawn_formation(self, preset: str, num_drones: int = None):
-        """Respawn drones in a new formation preset.
+    def respawn_formation(self, preset: str, num_drones: int = None, spacing: float = None, 
+                         altitude: float = None, seed: int = None, up_axis: str = None):
+        """Respawn drones in a new formation preset with coordinate mapping.
         
         Args:
             preset: Formation preset ('v', 'line', 'circle', 'grid', 'random')
             num_drones: Number of drones (None to keep current count)
+            spacing: Inter-drone spacing (None to keep current)
+            altitude: Spawn altitude (None to keep current)
+            seed: Random seed (None to keep current)
+            up_axis: Coordinate system up-axis (None to keep current)
         """
         if num_drones is None:
             num_drones = len(self.drones)
         
-        # Store current formation state to avoid interruption
-        old_formation = self.current_formation
+        # Update spawn settings if provided
+        if spacing is not None:
+            self.spacing = spacing
+        if altitude is not None:
+            self.spawn_altitude = altitude
+        if seed is not None:
+            self.spawn_seed = seed
+        if up_axis is not None:
+            self.up_axis = up_axis
         
         # Clear existing drones
         self.drones.clear()
         
-        # Update spawn settings
+        # Update spawn preset
         self.spawn_preset = preset
         
-        # Create new drones at spawn positions
+        # Create new drones at mapped spawn positions
         self._create_drones(num_drones)
         
         # Keep formation as idle initially (drones spawn at target positions)
         self.current_formation = "idle"
         
-        print(f"Respawned {num_drones} drones in '{preset}' formation")
+        print(f"Respawned {num_drones} drones in '{preset}' formation (up_axis: {self.up_axis})")
+    
+    def auto_spawn(self, count: int, preset: str, spacing: float, altitude: float, seed: int, up_axis: str):
+        """Auto-spawn drones at startup with full configuration.
+        
+        Args:
+            count: Number of drones to spawn
+            preset: Formation preset
+            spacing: Inter-drone spacing
+            altitude: Spawn altitude
+            seed: Random seed
+            up_axis: Coordinate system up-axis
+        """
+        print(f"Auto-spawning {count} drones in '{preset}' formation...")
+        self.respawn_formation(preset, count, spacing, altitude, seed, up_axis)

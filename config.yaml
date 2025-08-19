@@ -6,6 +6,8 @@ gui:
   window_width: 800
   window_height: 600
   background_color: [0.1, 0.1, 0.2]
+  auto_spawn_on_start: true    # Auto-spawn drones at startup
+  up_axis: "y"                 # Coordinate system: "y" (Y-up) or "z" (Z-up)
   
   # Display toggles
   show_fps: true
@@ -27,8 +29,8 @@ gui:
 drones:
   count: 9                     # Number of drones to spawn
   spawn_preset: v              # Initial spawn formation: v | line | circle | grid | random
-  spawn_altitude: 5.0          # Y coordinate for spawning (meters)
-  spacing: 3.0                 # Inter-drone spacing (meters)
+  spawn_altitude: 10.0         # Altitude for spawning (meters) 
+  spacing: 5.0                 # Inter-drone spacing (meters)
   seed: 42                     # Random seed for deterministic placement
   
   # Drone appearance  

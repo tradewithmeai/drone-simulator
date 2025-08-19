@@ -44,6 +44,9 @@ class DroneSwarmGUI:
         self.simulator = Simulator(config_path)
         self.simulator.set_state_callback(self.on_simulation_update)
         
+        # Store up_axis for camera framing
+        self.up_axis = self.gui_config.get('up_axis', 'y')
+        
         # GUI state
         self.running = True
         self.paused = False
@@ -73,6 +76,9 @@ class DroneSwarmGUI:
         self.frame_count = 0
         self.fps = 0.0
         self.last_fps_update = time.time()
+        
+        # Auto-spawn flag
+        self.auto_spawn_triggered = False
         
     def on_simulation_update(self, drone_states, sim_info):
         """Callback for receiving simulation updates."""
@@ -150,6 +156,9 @@ class DroneSwarmGUI:
             smooth_camera = self.gui_config.get('smooth_camera', True)
             smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
             self.camera = Camera([15, 15, 15], [0, 5, 0], smooth_camera, smoothing_factor)
+        elif key == 'home':
+            # Frame swarm - center camera on all drones
+            self.frame_swarm()
         elif key == 't':
             self.show_targets = not self.show_targets
         elif key == 'g':
@@ -275,12 +284,57 @@ class DroneSwarmGUI:
                 preset = args[0]
                 print(f"Respawning drones in '{preset}' formation...")
                 try:
+                    # Pause simulation during respawn to prevent conflicts
+                    was_paused = self.paused
+                    if not was_paused:
+                        self.simulator.pause()
+                    
                     self.simulator.respawn_formation(preset)
                     print(f"Successfully respawned in '{preset}' formation")
+                    
+                    # Resume if it wasn't paused before
+                    if not was_paused:
+                        self.simulator.resume()
+                        
                 except Exception as e:
                     print(f"Error respawning: {e}")
                     import traceback
                     traceback.print_exc()
+                    # Make sure to resume simulation even if respawn failed
+                    if not was_paused and self.paused:
+                        self.simulator.resume()
+                        
+    def frame_swarm(self):
+        """Frame camera to show all drones."""
+        if not self.drone_states:
+            print("No drones to frame")
+            return
+            
+        # Import coordinate utilities
+        from simulation.coords import get_bounding_box, calculate_camera_distance
+        
+        # Get drone positions
+        positions = [state['position'] for state in self.drone_states]
+        
+        # Calculate bounding box and centroid
+        min_pos, max_pos, centroid = get_bounding_box(positions)
+        distance = calculate_camera_distance(min_pos, max_pos, 20.0)
+        
+        print(f"Framing swarm: centroid={centroid}, distance={distance:.1f}")
+        
+        # Update camera to look at centroid from appropriate distance
+        # Position camera at distance from centroid
+        cam_offset = [distance * 0.6, distance * 0.6, distance * 0.6]
+        new_camera_pos = [
+            centroid[0] + cam_offset[0],
+            centroid[1] + cam_offset[1], 
+            centroid[2] + cam_offset[2]
+        ]
+        
+        # Update camera position and target
+        smooth_camera = self.gui_config.get('smooth_camera', True)
+        smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
+        self.camera = Camera(new_camera_pos, centroid, smooth_camera, smoothing_factor)
         
     def draw_overlays(self):
         """Draw all GUI overlays."""
@@ -306,14 +360,25 @@ class DroneSwarmGUI:
         if self.drone_states:
             settled_count = sum(1 for drone in self.drone_states if drone['settled'])
             self.overlay.draw_drone_count(len(self.drone_states), settled_count)
+        else:
+            # Show "No drones" if none exist
+            self.overlay.draw_text("Drones: 0", 10, 110, self.overlay.color)
+            
+        # Draw up-axis info
+        self.overlay.draw_text(f"Up-axis: {self.up_axis.upper()}", 10, 130, self.overlay.color)
             
         # Draw camera info if locked to drone
         if self.camera.locked_drone_id is not None:
-            self.overlay.draw_text(f"Camera locked to Drone {self.camera.locked_drone_id}", 10, 110, (255, 255, 0))
+            self.overlay.draw_text(f"Camera locked to Drone {self.camera.locked_drone_id}", 10, 150, (255, 255, 0))
             
         # Draw pause indicator
         if self.paused:
-            self.overlay.draw_text("PAUSED - Press P to resume, O to step", 10, 130, (255, 255, 0))
+            self.overlay.draw_text("PAUSED - Press P to resume, O to step", 10, 170, (255, 255, 0))
+            
+        # Draw command queue indicator
+        if self.command_queue:
+            queue_text = f"Commands queued: {len(self.command_queue)}"
+            self.overlay.draw_text(queue_text, 10, 190, (255, 255, 0))
             
         # Draw help overlay
         if self.show_help:
@@ -342,6 +407,7 @@ class DroneSwarmGUI:
         print("  C/F - Toggle formation connections")
         print("  L - Toggle drone labels")
         print("  R - Reset camera")
+        print("  Home - Frame swarm (center camera on all drones)")
         print("  6-9 (hold) - Lock camera to drone")
         print("  ESC - Exit")
         print("")
@@ -356,9 +422,27 @@ class DroneSwarmGUI:
         # Start simulation
         self.simulator.start()
         
+        # Trigger auto-spawn after a short delay to ensure simulation is running
+        self.auto_spawn_start_time = time.time()
+        
         try:
             while self.running:
                 self.handle_events()
+                
+                # Trigger auto-spawn once after startup delay
+                if not self.auto_spawn_triggered and time.time() - self.auto_spawn_start_time > 0.5:
+                    self.auto_spawn_triggered = True
+                    self.simulator.trigger_auto_spawn()
+                    # Frame swarm after auto-spawn (with additional delay)
+                    self.frame_after_spawn = time.time()
+                    
+                # Frame swarm after auto-spawn completes
+                if hasattr(self, 'frame_after_spawn') and time.time() - self.frame_after_spawn > 1.0:
+                    if self.drone_states:  # Only frame if we have drones
+                        print("Auto-framing swarm after spawn...")
+                        self.frame_swarm()
+                    delattr(self, 'frame_after_spawn')  # Remove the attribute so this only runs once
+                
                 self.update()  # Always update to maintain frame timing
                 self.render()
                 

@@ -18,14 +18,32 @@ class Simulator:
             
         # Initialize swarm with drone settings
         drone_config = self.config['drones']
-        num_drones = drone_config['count']
+        gui_config = self.config.get('gui', {})
+        
+        # Get configuration values
         drone_colors = drone_config['colors']
+        up_axis = gui_config.get('up_axis', 'y')
+        auto_spawn = gui_config.get('auto_spawn_on_start', True)
+        
+        # Create empty swarm initially (we'll auto-spawn later if configured)
+        initial_count = drone_config['count'] if auto_spawn else 0
         spacing = drone_config['spacing']
         spawn_preset = drone_config['spawn_preset']
         spawn_altitude = drone_config['spawn_altitude']
         seed = drone_config['seed']
         
-        self.swarm = Swarm(num_drones, drone_colors, spacing, spawn_preset, spawn_altitude, seed)
+        self.swarm = Swarm(initial_count, drone_colors, spacing, spawn_preset, spawn_altitude, seed, up_axis)
+        
+        # Store auto-spawn settings for later use
+        self.auto_spawn_config = {
+            'enabled': auto_spawn,
+            'count': drone_config['count'],
+            'preset': spawn_preset,
+            'spacing': spacing,
+            'altitude': spawn_altitude,
+            'seed': seed,
+            'up_axis': up_axis
+        }
         self.update_rate = self.config['simulation']['update_rate']
         self.dt = 1.0 / self.update_rate
         
@@ -81,7 +99,31 @@ class Simulator:
     def respawn_formation(self, preset: str, num_drones: int = None):
         """Respawn drones in a new formation preset."""
         with self.lock:
-            self.swarm.respawn_formation(preset, num_drones)
+            # Use config values for respawn if not specified
+            config = self.auto_spawn_config
+            self.swarm.respawn_formation(
+                preset, 
+                num_drones or config['count'],
+                config['spacing'],
+                config['altitude'], 
+                config['seed'],
+                config['up_axis']
+            )
+            
+    def trigger_auto_spawn(self):
+        """Trigger auto-spawn if enabled in configuration."""
+        if self.auto_spawn_config['enabled']:
+            config = self.auto_spawn_config
+            print("Triggering auto-spawn...")
+            with self.lock:
+                self.swarm.auto_spawn(
+                    config['count'],
+                    config['preset'],
+                    config['spacing'],
+                    config['altitude'],
+                    config['seed'],
+                    config['up_axis']
+                )
             
     def get_drone_states(self) -> list:
         """Get current state of all drones."""
