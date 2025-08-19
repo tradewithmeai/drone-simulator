@@ -61,6 +61,7 @@ class DroneSwarmGUI:
         self.keys_pressed = {}
         self.mouse_dragging = False
         self.last_mouse_pos = (0, 0)
+        self.command_queue = []  # Queue for respawn commands
         
         # Current drone states
         self.drone_states = []
@@ -88,8 +89,12 @@ class DroneSwarmGUI:
                 self.running = False
                 
             elif event.type == pygame.KEYDOWN:
-                self.keys_pressed[pygame.key.name(event.key)] = True
-                self.handle_key_press(pygame.key.name(event.key))
+                key_name = pygame.key.name(event.key)
+                self.keys_pressed[key_name] = True
+                
+                # Check for Shift modifier
+                shift_pressed = bool(event.mod & pygame.KMOD_SHIFT)
+                self.handle_key_press(key_name, shift_pressed)
                 
             elif event.type == pygame.KEYUP:
                 self.keys_pressed[pygame.key.name(event.key)] = False
@@ -125,7 +130,7 @@ class DroneSwarmGUI:
                     # Future: implement drone selection
                     pass
                 
-    def handle_key_press(self, key):
+    def handle_key_press(self, key, shift_pressed=False):
         """Handle specific key presses."""
         if key == 'escape':
             self.running = False
@@ -164,9 +169,23 @@ class DroneSwarmGUI:
         elif key == '3':
             self.simulator.set_formation('grid')
         elif key == '4':
-            self.simulator.set_formation('v_formation')
+            if shift_pressed:
+                self.command_queue.append(('respawn', 'v'))
+            else:
+                self.simulator.set_formation('v_formation')
         elif key == '0':
             self.simulator.set_formation('idle')
+        elif key == '5':
+            if shift_pressed:
+                self.command_queue.append(('respawn', 'random'))
+        # Shift+hotkeys for spawn presets
+        elif shift_pressed:
+            if key == '1':
+                self.command_queue.append(('respawn', 'line'))
+            elif key == '2':
+                self.command_queue.append(('respawn', 'circle'))
+            elif key == '3':
+                self.command_queue.append(('respawn', 'grid'))
         # Drone locking (1-9 keys for drone IDs)
         elif key in '123456789':
             drone_id = int(key) - 1
@@ -226,6 +245,9 @@ class DroneSwarmGUI:
         """Update the GUI state."""
         dt = self.clock.tick(60) / 1000.0  # Convert to seconds
         
+        # Process command queue
+        self._process_commands()
+        
         # Update FPS counter
         self.frame_count += 1
         current_time = time.time()
@@ -237,6 +259,15 @@ class DroneSwarmGUI:
         # Handle camera movement and smooth interpolation
         self.camera.handle_keyboard(self.keys_pressed, dt)
         self.camera.update_smooth_movement(dt)
+        
+    def _process_commands(self):
+        """Process queued commands."""
+        while self.command_queue:
+            command, *args = self.command_queue.pop(0)
+            if command == 'respawn':
+                preset = args[0]
+                print(f"Respawning drones in '{preset}' formation...")
+                self.simulator.respawn_formation(preset)
         
     def draw_overlays(self):
         """Draw all GUI overlays."""
@@ -251,10 +282,12 @@ class DroneSwarmGUI:
             elapsed = time.time() - self.start_time
             self.overlay.draw_sim_time(elapsed)
             
-        # Draw formation type
+        # Draw formation type and spawn preset
         if self.show_formation_type:
             formation = self.sim_info.get('current_formation', 'idle')
+            spawn_preset = self.sim_info.get('spawn_preset', 'unknown')
             self.overlay.draw_formation_type(formation)
+            self.overlay.draw_text(f"Spawn: {spawn_preset}", 10, 90, self.overlay.color)
             
         # Draw drone count and status
         if self.drone_states:
@@ -284,7 +317,9 @@ class DroneSwarmGUI:
         print("  Mouse drag - Rotate camera")
         print("  Mouse wheel - Zoom")
         print("  1-4 - Formation patterns (Line, Circle, Grid, V)")
+        print("  5 - (unused)")
         print("  0 - Idle formation")
+        print("  Shift+1-5 - Respawn in preset formations (Line, Circle, Grid, V, Random)")
         print("  P - Pause/Resume")
         print("  O - Step simulation (when paused)")
         print("  H - Toggle help overlay")

@@ -16,12 +16,16 @@ class Simulator:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        # Initialize swarm
-        num_drones = self.config['simulation']['num_drones']
-        drone_colors = self.config['drone']['colors']
-        spacing = self.config['formation']['spacing']
+        # Initialize swarm with drone settings
+        drone_config = self.config['drones']
+        num_drones = drone_config['count']
+        drone_colors = drone_config['colors']
+        spacing = drone_config['spacing']
+        spawn_preset = drone_config['spawn_preset']
+        spawn_altitude = drone_config['spawn_altitude']
+        seed = drone_config['seed']
         
-        self.swarm = Swarm(num_drones, drone_colors, spacing)
+        self.swarm = Swarm(num_drones, drone_colors, spacing, spawn_preset, spawn_altitude, seed)
         self.update_rate = self.config['simulation']['update_rate']
         self.dt = 1.0 / self.update_rate
         
@@ -74,6 +78,11 @@ class Simulator:
         with self.lock:
             self.swarm.set_formation(formation_type)
             
+    def respawn_formation(self, preset: str, num_drones: int = None):
+        """Respawn drones in a new formation preset."""
+        with self.lock:
+            self.swarm.respawn_formation(preset, num_drones)
+            
     def get_drone_states(self) -> list:
         """Get current state of all drones."""
         with self.lock:
@@ -89,7 +98,8 @@ class Simulator:
                 'formation_complete': self.swarm.is_formation_complete(),
                 'formation_progress': self.swarm.get_formation_progress(),
                 'num_drones': len(self.swarm.drones),
-                'update_rate': self.update_rate
+                'update_rate': self.update_rate,
+                'spawn_preset': self.swarm.spawn_preset
             }
             
     def _simulation_loop(self):

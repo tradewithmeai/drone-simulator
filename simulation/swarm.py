@@ -2,28 +2,34 @@ import numpy as np
 from typing import List, Dict, Any
 import math
 from simulation.drone import Drone
+from simulation.spawn import make_positions
 
 class Swarm:
     """Manages multiple drones and formation control."""
     
-    def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0):
+    def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0, 
+                 spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42):
         self.spacing = spacing
+        self.spawn_preset = spawn_preset
+        self.spawn_altitude = spawn_altitude
+        self.spawn_seed = seed
+        self.drone_colors = drone_colors
         self.drones = []
         
-        # Initialize drones in a grid pattern
-        grid_size = int(math.ceil(math.sqrt(num_drones)))
-        for i in range(num_drones):
-            row = i // grid_size
-            col = i % grid_size
-            x = (col - grid_size/2) * 2
-            y = 0
-            z = (row - grid_size/2) * 2
-            
-            color = drone_colors[i % len(drone_colors)]
-            drone = Drone(i, [x, y, z], color)
-            self.drones.append(drone)
+        # Create initial drones using spawn positions
+        self._create_drones(num_drones)
             
         self.current_formation = "idle"
+        
+    def _create_drones(self, num_drones: int):
+        """Create drones at spawn positions."""
+        positions = make_positions(num_drones, self.spawn_preset, self.spacing, self.spawn_altitude, self.spawn_seed)
+        
+        for i in range(num_drones):
+            position = positions[i] if i < len(positions) else [0, self.spawn_altitude, 0]
+            color = self.drone_colors[i % len(self.drone_colors)]
+            drone = Drone(i, position, color)
+            self.drones.append(drone)
         
     def update(self, delta_time: float):
         """Update all drones in the swarm."""
@@ -113,3 +119,30 @@ class Swarm:
         """Get formation completion progress (0.0 to 1.0)."""
         settled_count = sum(1 for drone in self.drones if drone.settled)
         return settled_count / len(self.drones)
+    
+    def respawn_formation(self, preset: str, num_drones: int = None):
+        """Respawn drones in a new formation preset.
+        
+        Args:
+            preset: Formation preset ('v', 'line', 'circle', 'grid', 'random')
+            num_drones: Number of drones (None to keep current count)
+        """
+        if num_drones is None:
+            num_drones = len(self.drones)
+        
+        # Store current formation state to avoid interruption
+        old_formation = self.current_formation
+        
+        # Clear existing drones
+        self.drones.clear()
+        
+        # Update spawn settings
+        self.spawn_preset = preset
+        
+        # Create new drones at spawn positions
+        self._create_drones(num_drones)
+        
+        # Keep formation as idle initially (drones spawn at target positions)
+        self.current_formation = "idle"
+        
+        print(f"Respawned {num_drones} drones in '{preset}' formation")

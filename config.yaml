@@ -23,16 +23,16 @@ gui:
   hud_font_size: 16
   hud_color: [0.0, 0.5, 1.0]  # Blue text
   
-# Simulation Settings
-simulation:
-  num_drones: 5
-  update_rate: 60  # Hz
-  max_speed: 10.0  # m/s
-  max_acceleration: 5.0  # m/s²
+# Drone Settings (unified)
+drones:
+  count: 9                     # Number of drones to spawn
+  spawn_preset: v              # Initial spawn formation: v | line | circle | grid | random
+  spawn_altitude: 5.0          # Y coordinate for spawning (meters)
+  spacing: 3.0                 # Inter-drone spacing (meters)
+  seed: 42                     # Random seed for deterministic placement
   
-# Drone Properties
-drone:
-  size: 0.5  # meters
+  # Drone appearance
+  size: 0.5                    # Drone size in meters
   colors:
     - [1.0, 0.0, 0.0]  # Red
     - [0.0, 1.0, 0.0]  # Green
@@ -42,6 +42,12 @@ drone:
     - [0.0, 1.0, 1.0]  # Cyan
     - [1.0, 0.5, 0.0]  # Orange
     - [0.5, 0.0, 1.0]  # Purple
+
+# Simulation Settings
+simulation:
+  update_rate: 60              # Hz
+  max_speed: 10.0              # m/s
+  max_acceleration: 5.0        # m/s²
     
 # Formation Settings
 formation:

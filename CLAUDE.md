@@ -30,6 +30,7 @@ This project implements a sophisticated 3D drone swarm simulator with real-time 
 - **Interactive pause/step controls** for detailed analysis
 - **Comprehensive help overlay** (H key) with all available controls
 - **Real-time status indicators** for paused state and camera lock
+- **Drone spawning system** with formation presets and Shift+hotkey controls
 
 ### Dual Operation Modes
 - **3D GUI mode** with full interactive visualization
@@ -46,6 +47,7 @@ drone-swarm-3d-sim/
 │   ├── __init__.py
 │   ├── drone.py            # Individual drone physics and control
 │   ├── swarm.py            # Multi-drone coordination and formations
+│   ├── spawn.py            # Formation-based drone spawn positions
 │   └── simulator.py        # Main simulation loop and threading
 ├── gui/                    # 3D visualization system
 │   ├── __init__.py
@@ -131,6 +133,13 @@ python main.py --config custom_config.yaml
 - **4**: V-formation
 - **0**: Idle (maintain current positions)
 
+#### Drone Spawning Controls
+- **Shift+1**: Respawn drones in Line formation
+- **Shift+2**: Respawn drones in Circle formation
+- **Shift+3**: Respawn drones in Grid formation
+- **Shift+4**: Respawn drones in V formation
+- **Shift+5**: Respawn drones in Random formation
+
 #### Display Toggles
 - **T**: Toggle target position indicators
 - **G**: Toggle ground grid
@@ -151,16 +160,23 @@ python main.py --config custom_config.yaml
 # GUI Settings
 use_gui: true
 gui:
-  window_width: 1024
-  window_height: 768
+  window_width: 800
+  window_height: 600
   show_fps: true
   show_labels: false
-  smooth_camera: true
+  smooth_camera: false
   camera_smoothing: 0.1
+
+# Drone Settings (unified)
+drones:
+  count: 9                     # Number of drones to spawn
+  spawn_preset: v              # Initial spawn formation: v | line | circle | grid | random
+  spawn_altitude: 5.0          # Y coordinate for spawning (meters)
+  spacing: 3.0                 # Inter-drone spacing (meters)
+  seed: 42                     # Random seed for deterministic placement
 
 # Simulation Settings
 simulation:
-  num_drones: 5
   update_rate: 60
   max_speed: 10.0
   max_acceleration: 5.0
@@ -177,6 +193,7 @@ formation:
 - **FPS Counter**: Live frame rate monitoring (top-left)
 - **Simulation Time**: Elapsed time in minutes
 - **Formation Status**: Current pattern and completion progress
+- **Spawn Preset**: Display of current spawn formation type
 - **Drone Count**: Active drones and settlement status
 - **Camera Lock**: Visual indicator when following drone
 - **Pause State**: Clear feedback for simulation control
@@ -193,6 +210,7 @@ formation:
 - **Drone Following**: Lock camera to specific drone for detailed tracking
 - **Multi-angle Viewing**: Free camera movement for comprehensive observation
 - **Real-time Metrics**: Live feedback on formation progress and drone states
+- **Formation Respawning**: Instant drone respawn in new formation presets
 
 ## 🎯 Technical Achievements
 
