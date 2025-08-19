@@ -38,7 +38,7 @@ class Swarm:
             color = self.drone_colors[i % len(self.drone_colors)]
             drone = Drone(i, position, color)
             # Set both position and target to spawned location
-            drone.target_position = position.copy() 
+            drone.target_position = np.array(position, dtype=float) 
             self.drones.append(drone)
         
     def update(self, delta_time: float):
