@@ -109,8 +109,7 @@ def run_gui_simulation(config_path="config.yaml"):
         print("Starting 3D GUI...")
         gui = DroneSwarmGUI(config_path)
         active_gui = gui  # Register for cleanup
-        active_simulator = gui.simulator  # Register simulator for cleanup
-        gui.run()
+        gui.run()  # GUI internally calls simulator.start()
     except KeyboardInterrupt:
         print("\n[EXIT] Ctrl+C detected, shutting down GUI...")
         cleanup_handler()

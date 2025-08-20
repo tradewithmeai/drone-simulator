@@ -9,7 +9,7 @@ class Simulator:
     """Main simulation engine that manages the drone swarm."""
     
     def __init__(self, config_path: str = "config.yaml"):
-        self.running = False
+        self._running = False
         self.paused = False
         self.lock = threading.Lock()
         
@@ -60,47 +60,46 @@ class Simulator:
         # Callbacks for external updates (e.g., GUI)
         self.state_update_callback: Optional[Callable] = None
         
-        # Simulation thread
-        self.sim_thread: Optional[threading.Thread] = None
+        # Thread management - simplified and safe
+        self._thread: Optional[threading.Thread] = None
+        self._last_tick_ts = 0.0
         
     def set_state_callback(self, callback: Callable):
         """Set callback function that receives drone state updates."""
         self.state_update_callback = callback
         
     def start(self):
-        """Start the simulation in a separate thread."""
-        print("[SIM] start() called")
-        if self.running:
-            print("[SIM] Already running, returning")
+        """Start the simulation thread - safe to call multiple times."""
+        if self._thread and self._thread.is_alive():
+            print("[SIM] start() called but thread already running")
             return
             
-        print("[SIM] Starting simulation thread...")
-        self.running = True
+        self._running = True
+        self._thread = threading.Thread(target=self._simulation_loop, name="SimThread", daemon=True)
+        self._thread.start()
         
-        try:
-            self.sim_thread = threading.Thread(target=self._simulation_loop, daemon=False)
-            self.sim_thread.start()
-            
-            # Give thread a moment to start
-            import time
-            time.sleep(0.1)
-            
-            if not self.sim_thread.is_alive():
-                print("[SIM] ERROR: Thread failed to start!")
-            else:
-                print("[SIM] Thread started successfully")
-                
-        except Exception as e:
-            print(f"[SIM] CRITICAL ERROR creating/starting thread: {e}")
-            import traceback
-            traceback.print_exc()
-            self.running = False
+        # Give thread a moment to start
+        time.sleep(0.05)
+        print(f"[SIM] thread started: alive={self._thread.is_alive()}, id={self._thread.ident}")
         
     def stop(self):
         """Stop the simulation."""
-        self.running = False
-        if self.sim_thread:
-            self.sim_thread.join()
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+            print("[SIM] Thread stopped")
+    
+    def is_alive(self) -> bool:
+        """Check if simulation thread is running."""
+        return bool(self._thread) and self._thread.is_alive()
+    
+    def last_tick_time(self) -> float:
+        """Get timestamp of last simulation tick."""
+        return self._last_tick_ts
+    
+    def queue_size(self) -> int:
+        """Get current command queue size."""
+        return self._cmd_queue.qsize()
             
     def pause(self):
         """Pause the simulation."""
@@ -127,14 +126,6 @@ class Simulator:
             
     def respawn_formation(self, preset: str, num_drones: int = None):
         """Queue respawn command to be processed by simulation thread."""
-        print(f"[SIM] ===== RESPAWN_FORMATION CALLED =====")
-        print(f"[SIM] Called from thread: {threading.get_ident()}")
-        print(f"[SIM] Preset: {preset}, num_drones: {num_drones}")
-        print(f"[SIM] Simulation running: {self.running}")
-        print(f"[SIM] Thread exists: {hasattr(self, 'sim_thread')}")
-        if hasattr(self, 'sim_thread'):
-            print(f"[SIM] Thread alive: {self.sim_thread.is_alive()}")
-        
         config = self.auto_spawn_config
         
         # For manual spawns, use a reasonable default instead of config count (which might be 0 in --no-spawn mode)
@@ -157,11 +148,7 @@ class Simulator:
             'up_axis': config['up_axis']
         }
         
-        print(f"[SIM] About to enqueue RESPAWN command with payload: {payload}")
-        print(f"[SIM] Current queue size before enqueue: {self._cmd_queue.qsize()}")
         self.enqueue("RESPAWN", payload)
-        print(f"[SIM] Current queue size after enqueue: {self._cmd_queue.qsize()}")
-        print(f"[SIM] ===== RESPAWN_FORMATION COMPLETED =====")
             
     def trigger_auto_spawn(self):
         """Queue auto-spawn command to be processed by simulation thread."""
@@ -191,7 +178,7 @@ class Simulator:
         """Get general simulation information."""
         with self.lock:
             return {
-                'running': self.running,
+                'running': self._running,
                 'paused': self.paused,
                 'current_formation': self.swarm.current_formation,
                 'formation_complete': self.swarm.is_formation_complete(),
@@ -203,142 +190,69 @@ class Simulator:
             
     def enqueue(self, cmd: str, payload: Optional[Dict[str, Any]] = None):
         """Enqueue a command for processing by the simulation thread."""
-        print(f"[SIM] ===== ENQUEUE CALLED =====")
-        print(f"[SIM] Command: {cmd}")
-        print(f"[SIM] Payload: {payload}")
-        print(f"[SIM] Queue size before put: {self._cmd_queue.qsize()}")
-        print(f"[SIM] Thread calling enqueue: {threading.get_ident()}")
-        
         self._cmd_queue.put((cmd, payload or {}))
-        
-        print(f"[SIM] Queue size after put: {self._cmd_queue.qsize()}")
-        print(f"[SIM] Command successfully queued: {cmd}")
-        print(f"[SIM] ===== ENQUEUE COMPLETED =====")
+        print(f"[SIM] queued {cmd} size={self._cmd_queue.qsize()}")
             
     def _simulation_loop(self):
-        """Main simulation loop running in separate thread."""
-        print("[SIM] ===== SIMULATION THREAD STARTED =====")
-        print(f"[SIM] Thread ID: {threading.get_ident()}")
-        print(f"[SIM] Thread name: {threading.current_thread().name}")
-        print(f"[SIM] Running flag: {self.running}")
-        print("[SIM] Starting main simulation loop...")
+        """Main simulation loop running in separate thread.
         
+        WARNING: This method must ONLY be called by the simulation thread.
+        Never call this directly from GUI code - use start() instead.
+        """
+        # Thread safety check
+        current_thread = threading.current_thread()
+        assert current_thread.name == "SimThread", f"Simulation loop must run on SimThread, not {current_thread.name}"
+        
+        print("[SIM] _simulation_loop ENTER")
         last = time.perf_counter()
-        loop_count = 0
         
-        while self.running:
-            try:
-                loop_count += 1
-                
-                # EXTENSIVE DEBUG: Log every single loop iteration for first 10 ticks
-                if loop_count <= 10:
-                    print(f"[SIM] LOOP TICK {loop_count}: running={self.running}, queue_size={self._cmd_queue.qsize()}")
-                
-                if loop_count % 300 == 0:  # Log every 5 seconds at 60 FPS
-                    print(f"[SIM] Loop running: tick {loop_count}")
-                
-                # Periodic heartbeat (every second at 60 FPS)
-                if loop_count % 60 == 0:
-                    print(f"[SIM] Heartbeat: tick {loop_count}, queue_size={self._cmd_queue.qsize()}")
-                    
-                now = time.perf_counter()
-                dt = min(now - last, self._max_dt)
-                last = now
-                
-                # EXTENSIVE DEBUG: Command processing section
-                if loop_count <= 10 or self._cmd_queue.qsize() > 0:
-                    print(f"[SIM] COMMAND PROCESSING START: tick={loop_count}, queue_size={self._cmd_queue.qsize()}")
-                
-                cmds_processed = 0
-                while cmds_processed < 8:
-                    try:
-                        cmd, payload = self._cmd_queue.get_nowait()
-                        print(f"[SIM] ===== PROCESSING COMMAND: {cmd} =====")
-                        print(f"[SIM] Command payload: {payload}")
-                        print(f"[SIM] Commands processed this tick: {cmds_processed}")
-                    except queue.Empty:
-                        if loop_count <= 10:
-                            print(f"[SIM] Queue empty at tick {loop_count}")
-                        break
-                    
-                    try:
-                        
-                        if cmd == "RESPAWN":
-                            with self.lock:
-                                self.swarm.respawn_formation(
-                                    payload.get('preset'),
-                                    payload.get('num_drones'),
-                                    payload.get('spacing'),
-                                    payload.get('altitude'),
-                                    payload.get('seed'),
-                                    payload.get('up_axis')
-                                )
-                                # IMMEDIATE STATE PUSH even if paused:
-                                if self.state_update_callback:
-                                    states = self.swarm.get_states()
-                                    info = self.get_simulation_info()
-                                    self.state_update_callback(states, info)
-                                print(f"[SIM] Respawned {len(self.swarm.drones)} drones via {payload}")
-                            
-                        elif cmd == "SET_FORMATION":
-                            with self.lock:
-                                self.swarm.set_formation(payload.get('formation'))
-                                
-                        elif cmd == "PAUSE":
-                            self.paused = True
-                            print("[SIM] Paused")
-                            
-                        elif cmd == "RESUME":
-                            self.paused = False
-                            print("[SIM] Resumed")
-                            
-                        elif cmd == "AUTO_SPAWN":
-                            with self.lock:
-                                self.swarm.auto_spawn(
-                                    payload.get('count'),
-                                    payload.get('preset'),
-                                    payload.get('spacing'),
-                                    payload.get('altitude'),
-                                    payload.get('seed'),
-                                    payload.get('up_axis')
-                                )
-                                # Immediate state push
-                                if self.state_update_callback:
-                                    states = self.swarm.get_states()
-                                    info = self.get_simulation_info()
-                                    self.state_update_callback(states, info)
-                                print(f"[SIM] Auto-spawn complete: {len(self.swarm.drones)} drones")
-                            
-                    except Exception as e:
-                        print(f"[SIM][ERROR] Command processing failed: {e}")
-                        import traceback
-                        traceback.print_exc()
-                    finally:
-                        cmds_processed += 1
-                
-                # 2) Physics update ONLY when not paused
-                with self.lock:
-                    if not self.paused:
-                        self.swarm.update(dt)
-                    
-                    # 3) ALWAYS push state to GUI (paused or not)
-                    if self.state_update_callback:
-                        states = self.swarm.get_states()
-                        info = self.get_simulation_info()
-                        self.state_update_callback(states, info)
-                        
-                        # Debug: log state push status
-                        if not states:
-                            print("[SIM][WARN] State push has 0 drones")
-                        elif cmds_processed > 0:  # Only log if we processed commands
-                            print(f"[SIM] State push: N={len(states)}")
-                            
-                # Sleep to regulate loop
-                time.sleep(self._tick_sleep)
-                
-            except Exception as e:
-                print(f"[SIM] CRITICAL ERROR in simulation loop: {e}")
-                import traceback
-                traceback.print_exc()
-                break  # Exit loop on critical error
+        while self._running:
+            now = time.perf_counter()
+            dt = min(now - last, self._max_dt)
+            last = now
             
+            # Process up to 8 commands per tick
+            cmds = 0
+            while cmds < 8:
+                try:
+                    cmd, payload = self._cmd_queue.get_nowait()
+                except queue.Empty:
+                    break
+                    
+                print(f"[SIM] processing {cmd} {payload}")
+                try:
+                    if cmd == "RESPAWN":
+                        with self.lock:
+                            self.swarm.respawn_formation(**payload)
+                            # Immediate state push
+                            if self.state_update_callback:
+                                states = self.swarm.get_states()
+                                info = self.get_simulation_info()
+                                self.state_update_callback(states, info)
+                            print(f"[SIM] respawn complete: N={len(self.swarm.drones)}")
+                    elif cmd == "SET_FORMATION":
+                        with self.lock:
+                            self.swarm.set_formation(**payload)
+                    elif cmd == "PAUSE":
+                        self.paused = True
+                    elif cmd == "RESUME":
+                        self.paused = False
+                except Exception as e:
+                    print(f"[SIM] ERROR processing {cmd}: {e}")
+                finally:
+                    cmds += 1
+            
+            # Physics only when not paused
+            with self.lock:
+                if not self.paused:
+                    self.swarm.update(dt)
+                # ALWAYS push state (paused or not)
+                if self.state_update_callback:
+                    states = self.swarm.get_states()
+                    info = self.get_simulation_info()
+                    self.state_update_callback(states, info)
+            
+            self._last_tick_ts = time.time()
+            time.sleep(self._tick_sleep)
+        
+        print("[SIM] _simulation_loop EXIT")

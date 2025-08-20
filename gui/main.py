@@ -88,10 +88,26 @@ class DroneSwarmGUI:
         self.last_diagnostic_log = time.time()
         self.diagnostic_interval = 5.0  # Log every 5 seconds
         
+        # Watchdog for monitoring simulation thread
+        self._watchdog_next = time.time() + 1.0
+        
     def on_simulation_update(self, drone_states, sim_info):
         """Callback for receiving simulation updates."""
         self.drone_states = drone_states
         self.sim_info = sim_info
+    
+    def _watchdog_tick(self):
+        """Monitor simulation thread health - log every second."""
+        if time.time() < self._watchdog_next:
+            return
+        self._watchdog_next = time.time() + 1.0
+        
+        alive = self.simulator.is_alive()
+        last = self.simulator.last_tick_time()
+        age = time.time() - last if last else -1
+        queue_size = self.simulator.queue_size()
+        
+        print(f"[WATCHDOG] sim_alive={alive} last_tick_age={age:0.2f}s queue_size={queue_size}")
         
         # Update camera with drone states for locking
         self.camera.set_drone_states(drone_states)
@@ -160,6 +176,15 @@ class DroneSwarmGUI:
                 self.simulator.step_simulation()
         elif key == 'h':  # H for help
             self.show_help = not self.show_help
+        elif key == 'f9':  # F9 for thread diagnostics
+            print("===== THREAD DIAGNOSTICS (F9) =====")
+            print(f"Simulator alive: {self.simulator.is_alive()}")
+            last = self.simulator.last_tick_time()
+            age = time.time() - last if last else -1
+            print(f"Last tick age: {age:0.2f}s")
+            print(f"Queue size: {self.simulator.queue_size()}")
+            print(f"Drones: {len(self.drone_states)}")
+            print("=====================================")
         elif key == 'r':
             # Reset camera
             smooth_camera = self.gui_config.get('smooth_camera', True)
@@ -182,12 +207,8 @@ class DroneSwarmGUI:
             self.show_connections = not self.show_connections
         elif key == '1':
             if shift_pressed:
-                print("===== SHIFT+1 PRESSED =====")
-                print(f"[GUI] Thread ID: {threading.get_ident()}")
-                print(f"[GUI] About to call respawn_formation('line')")
-                print(f"[GUI] Simulator thread alive: {self.simulator.sim_thread.is_alive() if hasattr(self.simulator, 'sim_thread') else 'NO THREAD'}")
+                print("[GUI] Enqueue RESPAWN line")
                 self.simulator.respawn_formation('line')
-                print(f"[GUI] respawn_formation() call completed")
             else:
                 self.simulator.set_formation('line')
         elif key == '2':
@@ -463,12 +484,10 @@ class DroneSwarmGUI:
         
         print("[DEBUG] Controls printed, about to start simulation...")
         
-        # Start simulation
-        print("[GUI] About to start simulator...")
+        # CRITICAL: Start simulation thread BEFORE GUI loop begins
+        print("[GUI] Starting simulation thread...")
         self.simulator.start()
-        print("[GUI] Simulator start() call completed")
-        
-        # Auto-spawn race condition fix: removed timed auto-spawn trigger
+        print("[GUI] Requested simulator.start()")
         
         print("[DEBUG] About to enter main GUI loop...")
         
@@ -476,11 +495,8 @@ class DroneSwarmGUI:
             while self.running:
                 self.handle_events()
                 
-                # REMOVED: Auto-spawn trigger that was causing race condition with simulation thread startup
-                # The timed auto-spawn call was interfering with simulation thread initialization
-                # Auto-spawn is now handled through configuration or manual spawn commands only
-                    
-                # Auto-framing removed - was part of auto-spawn race condition logic
+                # Monitor simulation thread health
+                self._watchdog_tick()
                 
                 self.update()  # Always update to maintain frame timing
                 self.render()
