@@ -1,6 +1,7 @@
 import time
 import threading
-from typing import Dict, Any, Optional, Callable
+import queue
+from typing import Dict, Any, Optional, Callable, Tuple
 import yaml
 from simulation.swarm import Swarm
 
@@ -47,8 +48,12 @@ class Simulator:
         
         # Auto-spawn tracking
         self.auto_spawn_triggered = False
-        self.spawn_command_queue = []  # Queue for spawn commands
-        self.spawn_queue_lock = threading.Lock()  # Separate lock for spawn queue
+        
+        # Central command queue (thread-safe)
+        self._cmd_queue = queue.Queue()
+        self._max_dt = 0.1  # Maximum time step to prevent instability
+        self._tick_sleep = 1.0 / self.config['simulation']['update_rate']
+        
         self.update_rate = self.config['simulation']['update_rate']
         self.dt = 1.0 / self.update_rate
         
@@ -79,11 +84,11 @@ class Simulator:
             
     def pause(self):
         """Pause the simulation."""
-        self.paused = True
+        self.enqueue("PAUSE")
         
     def resume(self):
         """Resume the simulation."""
-        self.paused = False
+        self.enqueue("RESUME")
         
     def step_simulation(self):
         """Step the simulation by one tick (useful when paused)."""
@@ -98,8 +103,7 @@ class Simulator:
         
     def set_formation(self, formation_type: str):
         """Set the formation pattern for the swarm."""
-        with self.lock:
-            self.swarm.set_formation(formation_type)
+        self.enqueue("SET_FORMATION", {"formation": formation_type})
             
     def respawn_formation(self, preset: str, num_drones: int = None):
         """Queue respawn command to be processed by simulation thread."""
@@ -116,36 +120,34 @@ class Simulator:
         else:
             default_count = num_drones
         
-        spawn_command = {
-            'type': 'respawn',
+        payload = {
             'preset': preset,
-            'count': default_count,
+            'num_drones': default_count,
             'spacing': config['spacing'],
             'altitude': config['altitude'],
             'seed': config['seed'],
             'up_axis': config['up_axis']
         }
         
-        with self.spawn_queue_lock:
-            self.spawn_command_queue.append(spawn_command)
-            queue_size = len(self.spawn_command_queue)
-        print(f"[GUI-THREAD] Respawn command queued: {spawn_command['count']} drones in '{preset}' formation (queue size: {queue_size})")
+        print(f"[GUI] Enqueue RESPAWN {payload}")
+        self.enqueue("RESPAWN", payload)
             
     def trigger_auto_spawn(self):
         """Queue auto-spawn command to be processed by simulation thread."""
         if self.auto_spawn_config['enabled']:
             config = self.auto_spawn_config
-            print("[GUI-THREAD] Queuing auto-spawn command...")
             
-            spawn_command = {
-                'type': 'auto_spawn',
-                'config': config
+            payload = {
+                'count': config['count'],
+                'preset': config['preset'],
+                'spacing': config['spacing'],
+                'altitude': config['altitude'],
+                'seed': config['seed'],
+                'up_axis': config['up_axis']
             }
             
-            with self.spawn_queue_lock:
-                self.spawn_command_queue.append(spawn_command)
-                queue_size = len(self.spawn_command_queue)
-            print(f"[GUI-THREAD] Auto-spawn command queued: {config['count']} drones in '{config['preset']}' formation (queue size: {queue_size})")
+            print(f"[GUI] Enqueue AUTO_SPAWN {payload}")
+            self.enqueue("AUTO_SPAWN", payload)
         else:
             print("Auto-spawn disabled in configuration")
             
@@ -168,109 +170,97 @@ class Simulator:
                 'spawn_preset': self.swarm.spawn_preset
             }
             
+    def enqueue(self, cmd: str, payload: Optional[Dict[str, Any]] = None):
+        """Enqueue a command for processing by the simulation thread."""
+        self._cmd_queue.put((cmd, payload or {}))
+        print(f"[SIM] queued {cmd} {payload}")
+            
     def _simulation_loop(self):
         """Main simulation loop running in separate thread."""
-        last_time = time.time()
+        last = time.perf_counter()
         
         while self.running:
-            current_time = time.time()
-            actual_dt = current_time - last_time
-            last_time = current_time
+            now = time.perf_counter()
+            dt = min(now - last, self._max_dt)
+            last = now
             
-            # Process spawn commands in simulation thread (thread-safe)
-            self._process_spawn_commands()
+            # 1) Process at most 8 commands per tick to avoid starvation
+            cmds_processed = 0
+            while cmds_processed < 8:
+                try:
+                    cmd, payload = self._cmd_queue.get_nowait()
+                except queue.Empty:
+                    break
+                    
+                try:
+                    print(f"[SIM] processing {cmd} {payload}")
+                    
+                    if cmd == "RESPAWN":
+                        with self.lock:
+                            self.swarm.respawn_formation(
+                                payload.get('preset'),
+                                payload.get('num_drones'),
+                                payload.get('spacing'),
+                                payload.get('altitude'),
+                                payload.get('seed'),
+                                payload.get('up_axis')
+                            )
+                            # IMMEDIATE STATE PUSH even if paused:
+                            if self.state_update_callback:
+                                states = self.swarm.get_states()
+                                info = self.get_simulation_info()
+                                self.state_update_callback(states, info)
+                            print(f"[SIM] Respawned {len(self.swarm.drones)} drones via {payload}")
+                            
+                    elif cmd == "SET_FORMATION":
+                        with self.lock:
+                            self.swarm.set_formation(payload.get('formation'))
+                            
+                    elif cmd == "PAUSE":
+                        self.paused = True
+                        print("[SIM] Paused")
+                        
+                    elif cmd == "RESUME":
+                        self.paused = False
+                        print("[SIM] Resumed")
+                        
+                    elif cmd == "AUTO_SPAWN":
+                        with self.lock:
+                            self.swarm.auto_spawn(
+                                payload.get('count'),
+                                payload.get('preset'),
+                                payload.get('spacing'),
+                                payload.get('altitude'),
+                                payload.get('seed'),
+                                payload.get('up_axis')
+                            )
+                            # Immediate state push
+                            if self.state_update_callback:
+                                states = self.swarm.get_states()
+                                info = self.get_simulation_info()
+                                self.state_update_callback(states, info)
+                            print(f"[SIM] Auto-spawn complete: {len(self.swarm.drones)} drones")
+                            
+                finally:
+                    cmds_processed += 1
             
+            # 2) Physics update ONLY when not paused
             with self.lock:
                 if not self.paused:
-                    # Update physics only when not paused
-                    self.swarm.update(actual_dt)
-
-                # Always push states (paused or not) so GUI can render and HUD stays live
+                    self.swarm.update(dt)
+                
+                # 3) ALWAYS push state to GUI (paused or not)
                 if self.state_update_callback:
                     states = self.swarm.get_states()
-                    sim_info = self.get_simulation_info()
-                    self.state_update_callback(states, sim_info)
-                        
-            # Sleep to maintain target update rate
-            sleep_time = max(0, self.dt - actual_dt)
-            time.sleep(sleep_time)
-            
-    def _process_spawn_commands(self):
-        """Process queued spawn commands in the simulation thread (thread-safe)."""
-        # Check queue size for debugging
-        queue_size = 0
-        with self.spawn_queue_lock:
-            queue_size = len(self.spawn_command_queue)
-        
-        
-        if queue_size == 0:
-            return
-        
-        print(f"[SPAWN-DEBUG] Processing spawn queue (size: {queue_size})")
-            
-        # Process one command per simulation tick to avoid blocking
-        command = None
-        with self.spawn_queue_lock:
-            if self.spawn_command_queue:
-                command = self.spawn_command_queue.pop(0)
-                remaining = len(self.spawn_command_queue)
-                print(f"[SPAWN-DEBUG] Dequeued command: {command['type']}, remaining: {remaining}")
-            else:
-                print("[SPAWN-DEBUG] Queue was empty when trying to dequeue")
-                return
-        
-        if command is None:
-            print("[SPAWN-DEBUG] Command is None after dequeue")
-            return
-        
-        # Execute spawn command with error handling
-        try:
-            if command['type'] == 'auto_spawn':
-                config = command['config']
-                print(f"[SIM-THREAD] Processing auto-spawn: {config['count']} drones...")
-                
-                with self.lock:
-                    self.swarm.auto_spawn(
-                        config['count'],
-                        config['preset'], 
-                        config['spacing'],
-                        config['altitude'],
-                        config['seed'],
-                        config['up_axis']
-                    )
+                    info = self.get_simulation_info()
+                    self.state_update_callback(states, info)
                     
-                    # Immediately push a state snapshot so GUI sees drones this frame
-                    if self.state_update_callback:
-                        states = self.swarm.get_states()
-                        sim_info = self.get_simulation_info()
-                        self.state_update_callback(states, sim_info)
+                    # Debug: log state push status
+                    if not states:
+                        print("[SIM][WARN] State push has 0 drones")
+                    elif cmds_processed > 0:  # Only log if we processed commands
+                        print(f"[SIM] State push: N={len(states)}")
                         
-                actual_count = len(self.swarm.drones)
-                print(f"[SIM-THREAD] Auto-spawn completed: {actual_count} drones created in '{config['preset']}' formation")
-                
-            elif command['type'] == 'respawn':
-                print(f"[SIM-THREAD] Processing respawn: {command['count']} drones in '{command['preset']}' formation...")
-                
-                with self.lock:
-                    self.swarm.respawn_formation(
-                        command['preset'],
-                        command['count'],
-                        command['spacing'],
-                        command['altitude'],
-                        command['seed'],
-                        command['up_axis']
-                    )
-                    
-                    # Immediately push a state snapshot so GUI sees drones this frame
-                    if self.state_update_callback:
-                        states = self.swarm.get_states()
-                        sim_info = self.get_simulation_info()
-                        self.state_update_callback(states, sim_info)
-                        
-                actual_count = len(self.swarm.drones)
-                print(f"[SIM-THREAD] Respawn completed: {actual_count} drones created in '{command['preset']}' formation")
-                
-        except Exception as e:
-            print(f"[SIM-THREAD] Spawn command failed: {e}")
-            import traceback
-            traceback.print_exc()
+            # Sleep to regulate loop
+            time.sleep(self._tick_sleep)
+            
