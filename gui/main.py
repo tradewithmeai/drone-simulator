@@ -91,11 +91,33 @@ class DroneSwarmGUI:
         # Watchdog for monitoring simulation thread
         self._watchdog_next = time.time() + 1.0
         
+        # CRITICAL: Start simulator thread immediately after initialization
+        self._ensure_simulator_started()
+        
     def on_simulation_update(self, drone_states, sim_info):
         """Callback for receiving simulation updates."""
         self.drone_states = drone_states
         self.sim_info = sim_info
     
+    def _ensure_simulator_started(self):
+        """Ensure simulator thread is started - can be called multiple times safely."""
+        print("[GUI] Ensuring simulator thread is started...")
+        if not self.simulator.is_alive():
+            print("[GUI] Starting simulator thread...")
+            self.simulator.start()
+            
+            # Verify thread actually started
+            import time
+            time.sleep(0.1)  # Give thread time to start
+            
+            if self.simulator.is_alive():
+                print(f"[GUI] SUCCESS: Simulator thread started (id={self.simulator._thread.ident})")
+            else:
+                print("[GUI] ERROR: Simulator thread failed to start!")
+                raise RuntimeError("Simulator thread startup failed")
+        else:
+            print("[GUI] SUCCESS: Simulator thread already running")
+
     def _watchdog_tick(self):
         """Monitor simulation thread health - log every second."""
         if time.time() < self._watchdog_next:
@@ -110,7 +132,7 @@ class DroneSwarmGUI:
         print(f"[WATCHDOG] sim_alive={alive} last_tick_age={age:0.2f}s queue_size={queue_size}")
         
         # Update camera with drone states for locking
-        self.camera.set_drone_states(drone_states)
+        self.camera.set_drone_states(self.drone_states)
         
     def handle_events(self):
         """Handle pygame events."""
@@ -484,10 +506,8 @@ class DroneSwarmGUI:
         
         print("[DEBUG] Controls printed, about to start simulation...")
         
-        # CRITICAL: Start simulation thread BEFORE GUI loop begins
-        print("[GUI] Starting simulation thread...")
-        self.simulator.start()
-        print("[GUI] Requested simulator.start()")
+        # CRITICAL: Guarantee simulation thread starts BEFORE GUI loop
+        self._ensure_simulator_started()
         
         print("[DEBUG] About to enter main GUI loop...")
         
