@@ -2,6 +2,7 @@ import pygame
 import sys
 import yaml
 import time
+import threading
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
@@ -181,8 +182,12 @@ class DroneSwarmGUI:
             self.show_connections = not self.show_connections
         elif key == '1':
             if shift_pressed:
-                print("Shift+1 pressed - requesting line formation spawn")
+                print("===== SHIFT+1 PRESSED =====")
+                print(f"[GUI] Thread ID: {threading.get_ident()}")
+                print(f"[GUI] About to call respawn_formation('line')")
+                print(f"[GUI] Simulator thread alive: {self.simulator.sim_thread.is_alive() if hasattr(self.simulator, 'sim_thread') else 'NO THREAD'}")
                 self.simulator.respawn_formation('line')
+                print(f"[GUI] respawn_formation() call completed")
             else:
                 self.simulator.set_formation('line')
         elif key == '2':
@@ -424,7 +429,9 @@ class DroneSwarmGUI:
         
     def run(self):
         """Main GUI loop."""
+        print("[DEBUG] GUI run() method called")
         print("Starting Drone Swarm 3D GUI...")
+        print("[DEBUG] About to print controls...")
         print("Controls:")
         print("  WASD/QE - Move camera")
         print("  Mouse drag - Rotate camera")
@@ -454,29 +461,26 @@ class DroneSwarmGUI:
         print("  - Interactive pause/step controls")
         print("  - Comprehensive help overlay (press H)")
         
-        # Start simulation
-        self.simulator.start()
+        print("[DEBUG] Controls printed, about to start simulation...")
         
-        # Trigger auto-spawn after a short delay to ensure simulation is running
-        self.auto_spawn_start_time = time.time()
+        # Start simulation
+        print("[GUI] About to start simulator...")
+        self.simulator.start()
+        print("[GUI] Simulator start() call completed")
+        
+        # Auto-spawn race condition fix: removed timed auto-spawn trigger
+        
+        print("[DEBUG] About to enter main GUI loop...")
         
         try:
             while self.running:
                 self.handle_events()
                 
-                # Trigger auto-spawn once after startup delay
-                if not self.auto_spawn_triggered and time.time() - self.auto_spawn_start_time > 0.5:
-                    self.auto_spawn_triggered = True
-                    self.simulator.trigger_auto_spawn()
-                    # Frame swarm after auto-spawn (with additional delay)
-                    self.frame_after_spawn = time.time()
+                # REMOVED: Auto-spawn trigger that was causing race condition with simulation thread startup
+                # The timed auto-spawn call was interfering with simulation thread initialization
+                # Auto-spawn is now handled through configuration or manual spawn commands only
                     
-                # Frame swarm after auto-spawn completes
-                if hasattr(self, 'frame_after_spawn') and time.time() - self.frame_after_spawn > 1.0:
-                    if self.drone_states:  # Only frame if we have drones
-                        print("Auto-framing swarm after spawn...")
-                        self.frame_swarm()
-                    delattr(self, 'frame_after_spawn')  # Remove the attribute so this only runs once
+                # Auto-framing removed - was part of auto-spawn race condition logic
                 
                 self.update()  # Always update to maintain frame timing
                 self.render()
@@ -484,9 +488,13 @@ class DroneSwarmGUI:
         finally:
             # Clean up
             print("[EXIT] Stopping simulation...")
-            self.simulator.stop()
+            if hasattr(self, 'simulator') and self.simulator:
+                self.simulator.stop()
             print("[EXIT] Cleaning up GUI resources...")
-            pygame.quit()
+            try:
+                pygame.quit()
+            except:
+                pass  # Ignore pygame cleanup errors
             print("[EXIT] Shutdown complete.")
 
 def main():

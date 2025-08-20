@@ -9,13 +9,62 @@ import sys
 import yaml
 import time
 import argparse
+import signal
+import atexit
 from simulation.simulator import Simulator
+
+# Global variables for cleanup
+active_simulator = None
+active_gui = None
+
+def cleanup_handler():
+    """Clean up resources on exit."""
+    print("\n[EXIT] Cleaning up resources...")
+    
+    if active_simulator:
+        print("[EXIT] Stopping simulator...")
+        active_simulator.stop()
+        
+    if active_gui:
+        print("[EXIT] Stopping GUI...")
+        active_gui.running = False
+        
+    print("[EXIT] Cleanup completed")
+
+def signal_handler(signum, frame):
+    """Handle Ctrl+C and other signals."""
+    print(f"\n[EXIT] Signal {signum} received, initiating shutdown...")
+    try:
+        cleanup_handler()
+    except Exception as e:
+        print(f"[EXIT] Cleanup error: {e}")
+    
+    # Force exit after brief delay
+    import threading
+    def force_exit():
+        import time
+        time.sleep(2)
+        print("[EXIT] Force terminating...")
+        import os
+        os._exit(0)
+    
+    threading.Thread(target=force_exit, daemon=True).start()
+    sys.exit(0)
+
+# Register cleanup handlers
+atexit.register(cleanup_handler)
+signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+if hasattr(signal, 'SIGTERM'):
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination
 
 def run_headless_simulation(config_path="config.yaml"):
     """Run simulation without GUI (headless mode)."""
+    global active_simulator
+    
     print("Starting headless drone swarm simulation...")
     
     simulator = Simulator(config_path)
+    active_simulator = simulator  # Register for cleanup
     simulator.start()
     
     try:
@@ -53,13 +102,18 @@ def run_headless_simulation(config_path="config.yaml"):
 
 def run_gui_simulation(config_path="config.yaml"):
     """Run simulation with 3D GUI."""
+    global active_gui
+    
     try:
         from gui.main import DroneSwarmGUI
         print("Starting 3D GUI...")
         gui = DroneSwarmGUI(config_path)
+        active_gui = gui  # Register for cleanup
+        active_simulator = gui.simulator  # Register simulator for cleanup
         gui.run()
     except KeyboardInterrupt:
         print("\n[EXIT] Ctrl+C detected, shutting down GUI...")
+        cleanup_handler()
     except ImportError as e:
         print(f"Error: GUI dependencies not available: {e}")
         print("Please install GUI dependencies:")
