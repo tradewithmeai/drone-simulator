@@ -259,3 +259,9 @@ dmypy.json
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Generated simulation recordings (don't commit large output files)
+game_*.html
+*_replay.html
+simulation_data.json
+*.replay.json
