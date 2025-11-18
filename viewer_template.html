@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hide-and-Seek Drone Simulator - 3D Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
+            z-index: 100;
+            min-width: 250px;
+        }
+
+        #hud h2 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+
+        #hud .stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+
+        #hud .stat-label {
+            color: #aaa;
+        }
+
+        #hud .stat-value {
+            font-weight: bold;
+        }
+
+        .status-active {
+            color: #4CAF50;
+        }
+
+        .status-winner {
+            color: #FFD700;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        #controls button {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        #controls button:hover {
+            background: #45a049;
+        }
+
+        #controls button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        #timeline {
+            flex: 1;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            position: relative;
+            min-width: 300px;
+        }
+
+        #timeline-progress {
+            height: 100%;
+            background: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.1s linear;
+        }
+
+        #time-display {
+            color: #fff;
+            font-size: 14px;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        #speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #speed-control select {
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 100;
+        }
+
+        #legend h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0;
+            font-size: 13px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+        }
+
+        #loading h1 {
+            font-size: 32px;
+            margin-bottom: 20px;
+        }
+
+        .spinner {
+            border: 5px solid #333;
+            border-top: 5px solid #4CAF50;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <h1>🚁 Hide-and-Seek Drone Simulator</h1>
+        <div class="spinner"></div>
+        <p style="margin-top: 20px;">Loading simulation data...</p>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="hud" class="hidden">
+        <h2>🎮 Game Status</h2>
+        <div class="stat">
+            <span class="stat-label">Time:</span>
+            <span class="stat-value" id="game-time">--:--</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Caught:</span>
+            <span class="stat-value" id="caught-count">0/0</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Free Hiders:</span>
+            <span class="stat-value" id="free-count">0</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Status:</span>
+            <span class="stat-value status-active" id="game-status">WAITING</span>
+        </div>
+    </div>
+
+    <div id="legend" class="hidden">
+        <h3>🏷️ Legend</h3>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #00ff00;"></div>
+            <span>Seekers</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #ff0000;"></div>
+            <span>Hiders (Free)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #800000;"></div>
+            <span>Hiders (Caught)</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #8B4513;"></div>
+            <span>Obstacles</span>
+        </div>
+    </div>
+
+    <div id="controls" class="hidden">
+        <button id="play-pause-btn">▶ Play</button>
+        <button id="restart-btn">⟲ Restart</button>
+        <div id="timeline">
+            <div id="timeline-progress"></div>
+        </div>
+        <div id="time-display">0:00 / 0:00</div>
+        <div id="speed-control">
+            <label>Speed:</label>
+            <select id="speed-select">
+                <option value="0.25">0.25x</option>
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1x</option>
+                <option value="2">2x</option>
+                <option value="4">4x</option>
+            </select>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Simulation data will be injected here
+        const SIMULATION_DATA = {{SIMULATION_DATA}};
+
+        // Three.js scene setup
+        let scene, camera, renderer, controls;
+        let droneMeshes = [];
+        let obstacleMeshes = [];
+        let trailLines = [];
+        let isPlaying = false;
+        let currentFrameIndex = 0;
+        let playbackSpeed = 1.0;
+        let lastFrameTime = 0;
+        let droneTrails = {};
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a1a);
+            scene.fog = new THREE.Fog(0x0a0a1a, 50, 100);
+
+            // Camera
+            const aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 1000);
+            camera.position.set(30, 30, 30);
+            camera.lookAt(0, 5, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(20, 30, 10);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.left = -50;
+            directionalLight.shadow.camera.right = 50;
+            directionalLight.shadow.camera.top = 50;
+            directionalLight.shadow.camera.bottom = -50;
+            scene.add(directionalLight);
+
+            // Grid
+            const gridSize = SIMULATION_DATA.metadata.play_area_size || 50;
+            const grid = new THREE.GridHelper(gridSize, 20, 0x444444, 0x222222);
+            scene.add(grid);
+
+            // Ground plane
+            const groundGeometry = new THREE.PlaneGeometry(gridSize, gridSize);
+            const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1a2a, side: THREE.DoubleSide });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            // Create obstacles
+            SIMULATION_DATA.obstacles.forEach(obstacle => {
+                const geometry = new THREE.BoxGeometry(...obstacle.size);
+                const material = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(...obstacle.position);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                scene.add(mesh);
+                obstacleMeshes.push(mesh);
+
+                // Add edges
+                const edges = new THREE.EdgesGeometry(geometry);
+                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+                line.position.set(...obstacle.position);
+                scene.add(line);
+            });
+
+            // Simple orbit controls (mouse drag to rotate)
+            setupControls();
+
+            // Event listeners
+            window.addEventListener('resize', onWindowResize);
+            document.getElementById('play-pause-btn').addEventListener('click', togglePlayPause);
+            document.getElementById('restart-btn').addEventListener('click', restart);
+            document.getElementById('timeline').addEventListener('click', onTimelineClick);
+            document.getElementById('speed-select').addEventListener('change', onSpeedChange);
+
+            // Hide loading, show UI
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            document.getElementById('legend').classList.remove('hidden');
+            document.getElementById('controls').classList.remove('hidden');
+
+            // Start animation loop
+            animate();
+        }
+
+        function setupControls() {
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+            const rotationSpeed = 0.005;
+
+            renderer.domElement.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+
+                const deltaX = e.clientX - previousMousePosition.x;
+                const deltaY = e.clientY - previousMousePosition.y;
+
+                // Rotate camera around origin
+                const radius = camera.position.length();
+                const theta = Math.atan2(camera.position.z, camera.position.x);
+                const phi = Math.acos(camera.position.y / radius);
+
+                const newTheta = theta - deltaX * rotationSpeed;
+                const newPhi = Math.max(0.1, Math.min(Math.PI - 0.1, phi - deltaY * rotationSpeed));
+
+                camera.position.x = radius * Math.sin(newPhi) * Math.cos(newTheta);
+                camera.position.y = radius * Math.cos(newPhi);
+                camera.position.z = radius * Math.sin(newPhi) * Math.sin(newTheta);
+                camera.lookAt(0, 5, 0);
+
+                previousMousePosition = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            renderer.domElement.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY * 0.01;
+                const newRadius = camera.position.length() + delta;
+                if (newRadius > 10 && newRadius < 100) {
+                    camera.position.multiplyScalar(newRadius / camera.position.length());
+                    camera.lookAt(0, 5, 0);
+                }
+            });
+        }
+
+        function updateFrame(frameIndex) {
+            if (frameIndex >= SIMULATION_DATA.frames.length) {
+                isPlaying = false;
+                document.getElementById('play-pause-btn').textContent = '▶ Play';
+                return;
+            }
+
+            const frame = SIMULATION_DATA.frames[frameIndex];
+
+            // Update or create drone meshes
+            frame.drones.forEach((drone, index) => {
+                if (!droneMeshes[drone.id]) {
+                    // Create drone
+                    const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+                    const material = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.castShadow = true;
+                    scene.add(mesh);
+                    droneMeshes[drone.id] = mesh;
+
+                    // Initialize trail
+                    droneTrails[drone.id] = [];
+                }
+
+                // Update position
+                const mesh = droneMeshes[drone.id];
+                mesh.position.set(...drone.position);
+
+                // Update color based on role and state
+                let color;
+                if (drone.role === 'seeker') {
+                    color = 0x00ff00; // Green
+                } else if (drone.caught) {
+                    color = 0x800000; // Dark red
+                } else {
+                    color = 0xff0000; // Red
+                }
+                mesh.material.color.setHex(color);
+
+                // Update trail
+                if (droneTrails[drone.id].length > 50) {
+                    droneTrails[drone.id].shift();
+                }
+                droneTrails[drone.id].push(new THREE.Vector3(...drone.position));
+            });
+
+            // Update HUD
+            if (frame.game_status) {
+                const gs = frame.game_status;
+                const minutes = Math.floor(gs.remaining_time / 60);
+                const seconds = Math.floor(gs.remaining_time % 60);
+                document.getElementById('game-time').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                document.getElementById('caught-count').textContent = `${gs.caught_count}/${gs.total_hiders}`;
+                document.getElementById('free-count').textContent = `${gs.total_hiders - gs.caught_count}`;
+
+                const statusEl = document.getElementById('game-status');
+                if (gs.winner) {
+                    statusEl.textContent = `WINNER: ${gs.winner.toUpperCase()}!`;
+                    statusEl.className = 'stat-value status-winner';
+                } else if (gs.active) {
+                    statusEl.textContent = 'GAME ACTIVE';
+                    statusEl.className = 'stat-value status-active';
+                } else {
+                    statusEl.textContent = 'WAITING';
+                    statusEl.className = 'stat-value';
+                }
+            }
+
+            // Update timeline
+            const progress = (frameIndex / (SIMULATION_DATA.frames.length - 1)) * 100;
+            document.getElementById('timeline-progress').style.width = progress + '%';
+
+            const currentTime = frame.timestamp;
+            const totalTime = SIMULATION_DATA.duration;
+            const currentMin = Math.floor(currentTime / 60);
+            const currentSec = Math.floor(currentTime % 60);
+            const totalMin = Math.floor(totalTime / 60);
+            const totalSec = Math.floor(totalTime % 60);
+            document.getElementById('time-display').textContent =
+                `${currentMin}:${currentSec.toString().padStart(2, '0')} / ${totalMin}:${totalSec.toString().padStart(2, '0')}`;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isPlaying) {
+                const now = performance.now();
+                const deltaTime = (now - lastFrameTime) / 1000; // seconds
+                lastFrameTime = now;
+
+                // Advance frame based on playback speed
+                const frameRate = SIMULATION_DATA.frame_count / SIMULATION_DATA.duration;
+                const framesToAdvance = deltaTime * frameRate * playbackSpeed;
+                currentFrameIndex += framesToAdvance;
+
+                if (currentFrameIndex >= SIMULATION_DATA.frames.length) {
+                    currentFrameIndex = SIMULATION_DATA.frames.length - 1;
+                    isPlaying = false;
+                    document.getElementById('play-pause-btn').textContent = '▶ Play';
+                }
+
+                updateFrame(Math.floor(currentFrameIndex));
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function togglePlayPause() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('play-pause-btn');
+            btn.textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+
+            if (isPlaying) {
+                lastFrameTime = performance.now();
+            }
+        }
+
+        function restart() {
+            currentFrameIndex = 0;
+            isPlaying = false;
+            document.getElementById('play-pause-btn').textContent = '▶ Play';
+            updateFrame(0);
+        }
+
+        function onTimelineClick(e) {
+            const rect = e.target.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percent = x / rect.width;
+            currentFrameIndex = Math.floor(percent * (SIMULATION_DATA.frames.length - 1));
+            updateFrame(currentFrameIndex);
+        }
+
+        function onSpeedChange(e) {
+            playbackSpeed = parseFloat(e.target.value);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Start when page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
