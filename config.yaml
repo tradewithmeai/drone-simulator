@@ -60,3 +60,26 @@ formation:
     - "circle"
     - "grid"
     - "v_formation"
+
+# Hide-and-Seek Game Settings
+game:
+  enabled: true                  # Enable hide-and-seek game mode
+  seeker_count: 2                # Number of seeker drones
+  hider_count: 7                 # Number of hider drones
+  game_duration: 120.0           # Game time limit in seconds (2 minutes)
+  detection_radius: 5.0          # Distance at which seekers detect hiders (meters)
+  catch_radius: 1.5              # Distance at which seekers catch hiders (meters)
+  auto_start: false              # Auto-start game on launch (press SPACE to start)
+
+  # Environment settings
+  environment:
+    play_area_size: 50.0         # Size of square play area (meters)
+    num_obstacles: 8             # Number of box obstacles
+    obstacle_seed: 42            # Random seed for obstacle generation
+
+  # AI behavior settings
+  ai:
+    seeker_vision_range: 15.0    # How far seekers can see for chasing (meters)
+    patrol_update_interval: 5.0  # How often seekers update patrol target (seconds)
+    hider_update_interval: 8.0   # How often hiders update hiding target (seconds)
+    flee_distance: 15.0          # How far hiders try to flee when detected (meters)

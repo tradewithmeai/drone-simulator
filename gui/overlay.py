@@ -58,25 +58,61 @@ class TextOverlay:
         """Draw camera information."""
         pos = camera.position
         self.draw_text(f"Camera: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f})", x, y)
+
+    def draw_game_status(self, game_status, x=10, y=30):
+        """Draw hide-and-seek game status."""
+        if not game_status:
+            return
+
+        y_offset = y
+
+        # Game timer
+        if game_status.get('active', False):
+            remaining = game_status.get('remaining_time', 0)
+            minutes = int(remaining // 60)
+            seconds = int(remaining % 60)
+            color = (255, 100, 100) if remaining < 30 else (255, 255, 255)
+            self.draw_text(f"Time: {minutes:02d}:{seconds:02d}", x, y_offset, color)
+            y_offset += 20
+
+        # Caught status
+        total = game_status.get('total_hiders', 0)
+        caught = game_status.get('caught_count', 0)
+        uncaught = game_status.get('uncaught_count', 0)
+        self.draw_text(f"Caught: {caught}/{total} | Free: {uncaught}", x, y_offset)
+        y_offset += 20
+
+        # Seeker count
+        seekers = game_status.get('seeker_count', 0)
+        self.draw_text(f"Seekers: {seekers}", x, y_offset)
+        y_offset += 20
+
+        # Game state
+        if game_status.get('active', False):
+            self.draw_text("STATUS: GAME ACTIVE", x, y_offset, (100, 255, 100))
+        elif game_status.get('winner'):
+            winner = game_status['winner'].upper()
+            color = (255, 215, 0)  # Gold
+            self.draw_text(f"WINNER: {winner}!", x, y_offset, color)
+        else:
+            self.draw_text("STATUS: WAITING", x, y_offset, (200, 200, 200))
         
     def draw_help_overlay(self):
         """Draw help overlay with all controls."""
         help_text = [
-            "DRONE SWARM SIMULATOR - CONTROLS",
+            "HIDE-AND-SEEK DRONE GAME - CONTROLS",
             "",
             "Camera:",
             "  WASD/QE - Move camera",
-            "  Mouse drag - Rotate camera", 
+            "  Mouse drag - Rotate camera",
             "  Mouse wheel - Zoom",
             "  R - Reset camera",
             "  1-9 - Lock camera to drone",
             "",
-            "Formations:",
-            "  1 - Line formation",
-            "  2 - Circle formation",
-            "  3 - Grid formation", 
-            "  4 - V-formation",
-            "  0 - Idle (no formation)",
+            "Game:",
+            "  SPACE - Start/Restart game",
+            "  Green drones = Seekers",
+            "  Red drones = Hiders",
             "",
             "Display:",
             "  T - Toggle targets",
@@ -84,7 +120,6 @@ class TextOverlay:
             "  X - Toggle axes",
             "  C - Toggle connections",
             "  L - Toggle drone labels",
-            "  F - Toggle formation lines",
             "",
             "Simulation:",
             "  P - Pause/Resume",
@@ -92,7 +127,7 @@ class TextOverlay:
             "",
             "Other:",
             "  H - Toggle this help",
-            "  ESC - Exit",
+            "  ESC/Q - Exit",
         ]
         
         # Semi-transparent background

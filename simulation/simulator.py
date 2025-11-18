@@ -3,7 +3,10 @@ import threading
 import queue
 from typing import Dict, Any, Optional, Callable, Tuple
 import yaml
+import numpy as np
 from simulation.swarm import Swarm
+from simulation.environment import Environment
+from simulation.game import HideAndSeekGame, SimpleAI
 
 class Simulator:
     """Main simulation engine that manages the drone swarm."""
@@ -63,6 +66,36 @@ class Simulator:
         # Thread management - simplified and safe
         self._thread: Optional[threading.Thread] = None
         self._last_tick_ts = 0.0
+
+        # Initialize game environment if enabled
+        self.game_enabled = self.config.get('game', {}).get('enabled', False)
+        self.environment = None
+        self.game = None
+        self.ai = None
+
+        if self.game_enabled:
+            game_config = self.config['game']
+            env_config = game_config['environment']
+
+            # Create environment with obstacles
+            self.environment = Environment(
+                play_area_size=env_config['play_area_size'],
+                num_obstacles=env_config['num_obstacles'],
+                seed=env_config['obstacle_seed']
+            )
+
+            # Create game manager
+            self.game = HideAndSeekGame(
+                environment=self.environment,
+                detection_radius=game_config['detection_radius'],
+                catch_radius=game_config['catch_radius'],
+                game_duration=game_config['game_duration']
+            )
+
+            # Create AI controller
+            self.ai = SimpleAI(self.environment)
+
+            print(f"[SIM] Hide-and-seek game mode enabled with {env_config['num_obstacles']} obstacles")
         
     def set_state_callback(self, callback: Callable):
         """Set callback function that receives drone state updates."""
@@ -123,6 +156,13 @@ class Simulator:
     def set_formation(self, formation_type: str):
         """Set the formation pattern for the swarm."""
         self.enqueue("SET_FORMATION", {"formation": formation_type})
+
+    def start_game(self):
+        """Start a new hide-and-seek game round."""
+        if self.game_enabled:
+            self.enqueue("START_GAME")
+        else:
+            print("[SIM] Game mode not enabled in config")
             
     def respawn_formation(self, preset: str, num_drones: int = None):
         """Queue respawn command to be processed by simulation thread."""
@@ -177,7 +217,7 @@ class Simulator:
     def get_simulation_info(self) -> Dict[str, Any]:
         """Get general simulation information."""
         with self.lock:
-            return {
+            info = {
                 'running': self._running,
                 'paused': self.paused,
                 'current_formation': self.swarm.current_formation,
@@ -185,13 +225,66 @@ class Simulator:
                 'formation_progress': self.swarm.get_formation_progress(),
                 'num_drones': len(self.swarm.drones),
                 'update_rate': self.update_rate,
-                'spawn_preset': self.swarm.spawn_preset
+                'spawn_preset': self.swarm.spawn_preset,
+                'game_enabled': self.game_enabled
             }
+
+            # Add game status if enabled
+            if self.game_enabled and self.game:
+                info['game_status'] = self.game.update(self.swarm.drones)
+            else:
+                info['game_status'] = None
+
+            return info
             
     def enqueue(self, cmd: str, payload: Optional[Dict[str, Any]] = None):
         """Enqueue a command for processing by the simulation thread."""
         self._cmd_queue.put((cmd, payload or {}))
         print(f"[SIM] queued {cmd} size={self._cmd_queue.qsize()}")
+
+    def _initialize_game_drones(self):
+        """Initialize drones for hide-and-seek game with roles and positions."""
+        if not self.game_enabled or not self.environment:
+            return
+
+        game_config = self.config['game']
+        seeker_count = game_config['seeker_count']
+        hider_count = game_config['hider_count']
+        total_drones = seeker_count + hider_count
+
+        # Respawn drones with correct count
+        if len(self.swarm.drones) != total_drones:
+            self.swarm.respawn_formation(
+                preset='random',
+                num_drones=total_drones,
+                spacing=5.0,
+                altitude=5.0,
+                seed=42,
+                up_axis='y'
+            )
+
+        # Assign roles and colors
+        for i, drone in enumerate(self.swarm.drones):
+            if i < seeker_count:
+                drone.role = "seeker"
+                drone.color = [0.0, 1.0, 0.0]  # Green for seekers
+                drone.behavior_state = "patrol"
+                # Start seekers at edges
+                pos = self.environment.get_random_position(min_clearance=1.0)
+                drone.position = pos
+                drone.target_position = pos
+            else:
+                drone.role = "hider"
+                drone.color = [1.0, 0.0, 0.0]  # Red for hiders
+                drone.behavior_state = "hide"
+                # Start hiders at hiding spots
+                hiding_spot = self.ai.hiding_spots[(i - seeker_count) % len(self.ai.hiding_spots)]
+                drone.position = hiding_spot + np.array([0, 2.0, 0])  # Start above hiding spot
+                drone.target_position = hiding_spot
+
+        # Update game total hiders count
+        self.game.total_hiders = hider_count
+        print(f"[SIM] Initialized game: {seeker_count} seekers, {hider_count} hiders")
             
     def _simulation_loop(self):
         """Main simulation loop running in separate thread.
@@ -237,6 +330,12 @@ class Simulator:
                         self.paused = True
                     elif cmd == "RESUME":
                         self.paused = False
+                    elif cmd == "START_GAME":
+                        if self.game_enabled and self.game:
+                            with self.lock:
+                                self._initialize_game_drones()
+                                self.game.start_game()
+                                print("[SIM] Game started!")
                 except Exception as e:
                     print(f"[SIM] ERROR processing {cmd}: {e}")
                 finally:
@@ -245,7 +344,22 @@ class Simulator:
             # Physics only when not paused
             with self.lock:
                 if not self.paused:
+                    # Update AI behaviors if game is active
+                    if self.game_enabled and self.game and self.game.game_active and self.ai:
+                        current_time = self.game.get_elapsed_time()
+                        seekers = [d for d in self.swarm.drones if d.role == "seeker"]
+                        hiders = [d for d in self.swarm.drones if d.role == "hider"]
+
+                        # Update each drone's AI
+                        for drone in self.swarm.drones:
+                            if drone.role == "seeker":
+                                self.ai.update_seeker_ai(drone, hiders, current_time)
+                            elif drone.role == "hider":
+                                self.ai.update_hider_ai(drone, seekers, current_time)
+
+                    # Update physics
                     self.swarm.update(dt)
+
                 # ALWAYS push state (paused or not)
                 if self.state_update_callback:
                     states = self.swarm.get_states()

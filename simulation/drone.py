@@ -4,8 +4,8 @@ import time
 
 class Drone:
     """Individual drone with physics simulation and movement control."""
-    
-    def __init__(self, drone_id: int, position: np.ndarray, color: List[float]):
+
+    def __init__(self, drone_id: int, position: np.ndarray, color: List[float], role: str = "hider"):
         self.id = drone_id
         self.position = np.array(position, dtype=float)
         self.velocity = np.zeros(3, dtype=float)
@@ -17,6 +17,14 @@ class Drone:
         self.convergence_threshold = 0.1
         self.settled = False
         self.battery_level = 100.0
+
+        # Hide-and-seek game attributes
+        self.role = role  # "seeker" or "hider"
+        self.detected = False  # Has this drone been detected by a seeker?
+        self.caught = False  # Has this hider been caught?
+        self.detection_time = None  # When was this drone first detected
+        self.behavior_state = "idle"  # Current AI state: idle, patrol, search, chase, hide, flee
+        self.last_target_update = 0.0  # Time of last target update (for AI behavior)
         
     def update(self, delta_time: float):
         """Update drone physics and movement."""
@@ -75,5 +83,9 @@ class Drone:
             'target': self.target_position.tolist(),
             'color': self.color,
             'battery': self.battery_level,
-            'settled': self.settled
+            'settled': self.settled,
+            'role': self.role,
+            'detected': self.detected,
+            'caught': self.caught,
+            'behavior_state': self.behavior_state
         }

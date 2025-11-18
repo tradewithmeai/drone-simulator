@@ -283,7 +283,7 @@ class Renderer:
             8: [(0,0,1,0), (1,0,1,1), (1,1,0,1), (0,1,0,0), (0,0.5,1,0.5)],
             9: [(0,0,1,0), (1,0,1,0.5), (0,0.5,1,0.5), (0,0,0,0.5), (1,0.5,1,1), (0,1,1,1)]
         }
-        
+
         if digit in segments:
             glBegin(GL_LINES)
             for seg in segments[digit]:
@@ -291,3 +291,75 @@ class Renderer:
                 glVertex2f(x + x1 * width, y + y1 * height)
                 glVertex2f(x + x2 * width, y + y2 * height)
             glEnd()
+
+    def draw_box(self, position, size, color=(0.6, 0.4, 0.2)):
+        """
+        Draw a 3D box obstacle.
+
+        Args:
+            position: Center position [x, y, z]
+            size: Box dimensions [width, height, depth]
+            color: RGB color tuple
+        """
+        glPushMatrix()
+        glTranslatef(position[0], position[1], position[2])
+
+        # Set box color
+        glColor3f(*color)
+
+        # Calculate half sizes
+        hx, hy, hz = size[0]/2, size[1]/2, size[2]/2
+
+        # Define vertices
+        vertices = [
+            [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],  # Front face
+            [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz]       # Back face
+        ]
+
+        # Define faces (quads)
+        faces = [
+            [0, 1, 2, 3],  # Front
+            [4, 5, 6, 7],  # Back
+            [0, 1, 5, 4],  # Bottom
+            [2, 3, 7, 6],  # Top
+            [0, 3, 7, 4],  # Left
+            [1, 2, 6, 5]   # Right
+        ]
+
+        # Define normals for each face
+        normals = [
+            [0, 0, -1],   # Front
+            [0, 0, 1],    # Back
+            [0, -1, 0],   # Bottom
+            [0, 1, 0],    # Top
+            [-1, 0, 0],   # Left
+            [1, 0, 0]     # Right
+        ]
+
+        # Draw filled faces
+        for i, face in enumerate(faces):
+            glNormal3fv(normals[i])
+            glBegin(GL_QUADS)
+            for vertex_idx in face:
+                glVertex3fv(vertices[vertex_idx])
+            glEnd()
+
+        # Draw edges in darker color for better visibility
+        glDisable(GL_LIGHTING)
+        glColor3f(color[0]*0.5, color[1]*0.5, color[2]*0.5)
+        glLineWidth(2.0)
+
+        edges = [
+            [0, 1], [1, 2], [2, 3], [3, 0],  # Front face
+            [4, 5], [5, 6], [6, 7], [7, 4],  # Back face
+            [0, 4], [1, 5], [2, 6], [3, 7]   # Connecting edges
+        ]
+
+        glBegin(GL_LINES)
+        for edge in edges:
+            for vertex_idx in edge:
+                glVertex3fv(vertices[vertex_idx])
+        glEnd()
+
+        glEnable(GL_LIGHTING)
+        glPopMatrix()

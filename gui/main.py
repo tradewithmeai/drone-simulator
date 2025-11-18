@@ -187,7 +187,13 @@ class DroneSwarmGUI:
         if key == 'escape' or key == 'q':
             print("\n[EXIT] User requested exit, shutting down...")
             self.running = False
-        elif key == 'p':  # P for pause (instead of space)
+        elif key == 'space':  # SPACE to start/restart game
+            if self.simulator.game_enabled:
+                print("[GUI] Starting hide-and-seek game...")
+                self.simulator.start_game()
+            else:
+                print("[GUI] Game mode not enabled in config")
+        elif key == 'p':  # P for pause
             self.paused = not self.paused
             if self.paused:
                 self.simulator.pause()
@@ -278,13 +284,18 @@ class DroneSwarmGUI:
         if hasattr(self.renderer, 'begin_unlit_section'):
             # Using optimized renderer with batched state changes
             self.renderer.begin_unlit_section()
-            
+
             # Draw grid and axes
             if self.show_grid:
                 self.renderer.draw_grid()
             if self.show_axes:
                 self.renderer.draw_axes()
-                
+
+            # Draw obstacles if game mode enabled
+            if self.simulator.environment:
+                for obstacle in self.simulator.environment.obstacles:
+                    self.renderer.draw_box(obstacle.position, obstacle.size)
+
             # Draw formation connections
             if self.show_connections and self.sim_info.get('current_formation') != 'idle':
                 self.renderer.draw_formation_connections(
@@ -314,7 +325,12 @@ class DroneSwarmGUI:
                 self.renderer.draw_grid()
             if self.show_axes:
                 self.renderer.draw_axes()
-                
+
+            # Draw obstacles if game mode enabled
+            if self.simulator.environment:
+                for obstacle in self.simulator.environment.obstacles:
+                    self.renderer.draw_box(obstacle.position, obstacle.size)
+
             # Draw formation connections
             if self.show_connections and self.sim_info.get('current_formation') != 'idle':
                 self.renderer.draw_formation_connections(
@@ -431,18 +447,22 @@ class DroneSwarmGUI:
         # Draw FPS counter
         if self.show_fps:
             self.overlay.draw_fps(self.fps)
-            
-        # Draw simulation time
-        if self.show_sim_time:
-            elapsed = time.time() - self.start_time
-            self.overlay.draw_sim_time(elapsed)
-            
-        # Draw formation type and spawn preset
-        if self.show_formation_type:
-            formation = self.sim_info.get('current_formation', 'idle')
-            spawn_preset = self.sim_info.get('spawn_preset', 'unknown')
-            self.overlay.draw_formation_type(formation)
-            self.overlay.draw_text(f"Spawn: {spawn_preset}", 10, 90, self.overlay.color)
+
+        # Draw game status if game mode enabled, otherwise show sim time and formation
+        if self.simulator.game_enabled and self.sim_info.get('game_status'):
+            self.overlay.draw_game_status(self.sim_info.get('game_status'))
+        else:
+            # Draw simulation time
+            if self.show_sim_time:
+                elapsed = time.time() - self.start_time
+                self.overlay.draw_sim_time(elapsed)
+
+            # Draw formation type and spawn preset
+            if self.show_formation_type:
+                formation = self.sim_info.get('current_formation', 'idle')
+                spawn_preset = self.sim_info.get('spawn_preset', 'unknown')
+                self.overlay.draw_formation_type(formation)
+                self.overlay.draw_text(f"Spawn: {spawn_preset}", 10, 90, self.overlay.color)
             
         # Draw drone count and status
         if self.drone_states:
