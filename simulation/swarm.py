@@ -1,9 +1,10 @@
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import math
 from simulation.drone import Drone
 from simulation.spawn import make_positions
 from simulation.coords import map_positions_list
+from hal.sim_hal import SimHAL
 
 class Swarm:
     """Manages multiple drones and formation control."""
@@ -17,11 +18,12 @@ class Swarm:
         self.up_axis = up_axis
         self.drone_colors = drone_colors
         self.drones = []
-        
+        self._hal_instances: Dict[int, SimHAL] = {}
+
         # Create initial drones using spawn positions (only if num_drones > 0)
         if num_drones > 0:
             self._create_drones(num_drones)
-            
+
         self.current_formation = "idle"
         
     def _create_drones(self, num_drones: int):
@@ -38,9 +40,25 @@ class Swarm:
             color = self.drone_colors[i % len(self.drone_colors)]
             drone = Drone(i, position, color)
             # Set both position and target to spawned location
-            drone.target_position = np.array(position, dtype=float) 
+            drone.target_position = np.array(position, dtype=float)
             self.drones.append(drone)
+            self._hal_instances[i] = SimHAL(drone)
         
+    def get_hal(self, drone_id: int) -> Optional[SimHAL]:
+        """Get the HAL interface for a specific drone.
+
+        Args:
+            drone_id: The drone's integer ID.
+
+        Returns:
+            SimHAL instance, or None if drone_id not found.
+        """
+        return self._hal_instances.get(drone_id)
+
+    def get_all_hals(self) -> Dict[int, SimHAL]:
+        """Get HAL interfaces for all drones."""
+        return dict(self._hal_instances)
+
     def update(self, delta_time: float):
         """Update all drones in the swarm."""
         for drone in self.drones:
@@ -178,6 +196,7 @@ class Swarm:
             # Clear existing drones safely
             old_count = len(self.drones)
             self.drones.clear()
+            self._hal_instances.clear()
             
             # Update spawn preset
             self.spawn_preset = preset

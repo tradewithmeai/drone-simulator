@@ -11,7 +11,7 @@ class Simulator:
     def __init__(self, config_path: str = "config.yaml"):
         self._running = False
         self.paused = False
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         
         # Load configuration
         with open(config_path, 'r') as f:
@@ -122,7 +122,7 @@ class Simulator:
         
     def set_formation(self, formation_type: str):
         """Set the formation pattern for the swarm."""
-        self.enqueue("SET_FORMATION", {"formation": formation_type})
+        self.enqueue("SET_FORMATION", {"formation_type": formation_type})
             
     def respawn_formation(self, preset: str, num_drones: int = None):
         """Queue respawn command to be processed by simulation thread."""
@@ -169,6 +169,23 @@ class Simulator:
         else:
             print("Auto-spawn disabled in configuration")
             
+    def get_hal(self, drone_id: int):
+        """Get the HAL interface for a specific drone.
+
+        Args:
+            drone_id: The drone's integer ID.
+
+        Returns:
+            SimHAL instance, or None if drone_id not found.
+        """
+        with self.lock:
+            return self.swarm.get_hal(drone_id)
+
+    def get_all_hals(self) -> dict:
+        """Get HAL interfaces for all drones."""
+        with self.lock:
+            return self.swarm.get_all_hals()
+
     def get_drone_states(self) -> list:
         """Get current state of all drones."""
         with self.lock:
@@ -205,6 +222,7 @@ class Simulator:
         
         print("[SIM] _simulation_loop ENTER")
         last = time.perf_counter()
+        start_time = time.perf_counter()  # Track simulation start time for auto-spawn
         
         while self._running:
             now = time.perf_counter()
@@ -241,6 +259,34 @@ class Simulator:
                     print(f"[SIM] ERROR processing {cmd}: {e}")
                 finally:
                     cmds += 1
+            
+            # Handle auto-spawn after initial startup delay (no race conditions)
+            if (not self.auto_spawn_triggered and 
+                self.auto_spawn_config['enabled'] and 
+                time.perf_counter() - start_time >= 0.5):
+                
+                print(f"[SIM] Triggering auto-spawn after 0.5s delay...")
+                self.auto_spawn_triggered = True
+                
+                try:
+                    with self.lock:
+                        config = self.auto_spawn_config
+                        self.swarm.auto_spawn(
+                            config['count'], 
+                            config['preset'],
+                            config['spacing'],
+                            config['altitude'], 
+                            config['seed'],
+                            config['up_axis']
+                        )
+                        # Immediate state push after auto-spawn
+                        if self.state_update_callback:
+                            states = self.swarm.get_states()
+                            info = self.get_simulation_info()
+                            self.state_update_callback(states, info)
+                        print(f"[SIM] Auto-spawn completed: {len(self.swarm.drones)} drones created")
+                except Exception as e:
+                    print(f"[SIM] Auto-spawn failed: {e}")
             
             # Physics only when not paused
             with self.lock:
