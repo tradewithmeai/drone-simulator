@@ -279,6 +279,7 @@ class QuadrotorPhysics:
         # NaN protection — reset state if physics explodes
         if (np.any(np.isnan(self.position)) or np.any(np.isnan(self.velocity))
                 or np.any(np.isnan(self.orientation))):
+            np.nan_to_num(self.position, copy=False, nan=0.0)
             self.velocity = np.zeros(3)
             self.angular_velocity = np.zeros(3)
             self.orientation = np.array([1.0, 0.0, 0.0, 0.0])
