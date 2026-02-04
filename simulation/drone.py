@@ -21,7 +21,8 @@ class Drone:
     def __init__(self, drone_id: int, position: np.ndarray, color: List[float],
                  physics_config: PhysicsConfig = None,
                  controller_config: FlightControllerConfig = None,
-                 sensor_config: SensorConfig = None):
+                 sensor_config: SensorConfig = None,
+                 obstacles=None):
         self.id = drone_id
         self.color = color
 
@@ -31,6 +32,7 @@ class Drone:
 
         # Flight controller
         self.controller = FlightController(self.physics, controller_config)
+        self.controller.obstacles = obstacles
 
         # Sensor suite (independent noise per drone, seeded by ID)
         self.sensors = SensorSuite(sensor_config, seed=drone_id)

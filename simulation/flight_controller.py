@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 from simulation.pid import PID, PID3D
 from simulation.physics import QuadrotorPhysics, PhysicsConfig, quat_to_euler
+from simulation.avoidance import APFAvoidance, AvoidanceConfig
 
 
 @dataclass
@@ -46,6 +47,13 @@ class FlightControllerConfig:
     rate_kp: float = 0.3
     rate_ki: float = 0.02
     rate_kd: float = 0.0
+
+    # Obstacle avoidance (APF)
+    avoidance_enabled: bool = False
+    avoidance_sensor_range: float = 5.0
+    avoidance_safety_margin: float = 0.5
+    avoidance_repulsion_gain: float = 3.0
+    avoidance_velocity_limit: float = 2.0
 
 
 class FlightController:
@@ -103,6 +111,16 @@ class FlightController:
         self.attitude_setpoint = np.zeros(3)   # [roll, pitch, yaw]
         self.thrust_setpoint = 0.0
         self.yaw_rate_setpoint = 0.0
+
+        # Obstacle avoidance
+        self.avoidance = APFAvoidance(AvoidanceConfig(
+            enabled=c.avoidance_enabled,
+            sensor_range=c.avoidance_sensor_range,
+            safety_margin=c.avoidance_safety_margin,
+            repulsion_gain=c.avoidance_repulsion_gain,
+            velocity_limit=c.avoidance_velocity_limit,
+        ))
+        self.obstacles = None  # Set by Drone after construction
 
         # Hover thrust (normalized RPM fraction)
         self._hover_thrust = self._compute_hover_thrust()
@@ -211,6 +229,17 @@ class FlightController:
                 self.position_setpoint[0] - current_pos[0], dt)
             vel_sp_z = self.pos_pid_z.update(
                 self.position_setpoint[2] - current_pos[2], dt)
+
+            # Obstacle avoidance — add repulsive velocity before velocity PID
+            if self.avoidance.config.enabled and self.obstacles is not None:
+                av = self.avoidance.compute_avoidance_velocity(
+                    current_pos, self.obstacles)
+                vel_sp_x += av[0]
+                vel_sp_z += av[2]
+                vel_sp_x = np.clip(vel_sp_x, -self.config.max_velocity,
+                                   self.config.max_velocity)
+                vel_sp_z = np.clip(vel_sp_z, -self.config.max_velocity,
+                                   self.config.max_velocity)
 
             # Velocity → Tilt angle (horizontal only)
             # Positive roll (Z-axis) tilts thrust in -X, so negate for +X movement

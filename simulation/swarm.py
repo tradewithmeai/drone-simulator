@@ -12,7 +12,8 @@ class Swarm:
 
     def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0,
                  spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42,
-                 up_axis: str = "y", sensor_config=None, collision_config=None):
+                 up_axis: str = "y", sensor_config=None, collision_config=None,
+                 environment=None, controller_config=None):
         self.spacing = spacing
         self.spawn_preset = spawn_preset
         self.spawn_altitude = spawn_altitude
@@ -26,6 +27,8 @@ class Swarm:
             'restitution': 0.3,
             'crash_speed': 8.0,
         }
+        self.environment = environment
+        self.controller_config = controller_config
         self.obstacles = ObstacleManager()
         self.drones = []
         self._hal_instances: Dict[int, SimHAL] = {}
@@ -48,7 +51,9 @@ class Swarm:
         for i in range(num_drones):
             position = mapped_positions[i] if i < len(mapped_positions) else [0, self.spawn_altitude, 0]
             color = self.drone_colors[i % len(self.drone_colors)]
-            drone = Drone(i, position, color, sensor_config=self.sensor_config)
+            drone = Drone(i, position, color, sensor_config=self.sensor_config,
+                         controller_config=self.controller_config,
+                         obstacles=self.obstacles)
             # Set both position and target to spawned location
             drone.target_position = np.array(position, dtype=float)
             self.drones.append(drone)
@@ -69,10 +74,16 @@ class Swarm:
         """Get HAL interfaces for all drones."""
         return dict(self._hal_instances)
 
-    def update(self, delta_time: float):
+    def update(self, delta_time: float, environment=None):
         """Update all drones in the swarm."""
+        import time as _time
+        env = environment or self.environment
+        wind_force = None
+        if env:
+            env.update(delta_time)
+            wind_force = env.get_wind_force(_time.time())
         for drone in self.drones:
-            drone.update(delta_time)
+            drone.update(delta_time, wind_force)
         self._detect_collisions()
 
     def _detect_collisions(self):

@@ -68,6 +68,20 @@ class CylinderObstacle(BaseModel):
     color: Optional[list] = None
 
 
+class AvoidanceConfigModel(BaseModel):
+    enabled: bool = True
+    sensor_range: float = 5.0
+    repulsion_gain: float = 3.0
+    velocity_limit: float = 2.0
+
+
+class WindConfigModel(BaseModel):
+    enabled: bool = True
+    base_velocity: list = [0.0, 0.0, 0.0]
+    gust_magnitude: float = 2.0
+    gust_frequency: float = 0.1
+
+
 # ── WebSocket connection manager ─────────────────────────────────
 
 class ConnectionManager:
@@ -280,6 +294,55 @@ def create_app(simulator, cors_origins: list = None, ws_push_rate: float = 10.0)
         simulator.clear_all_obstacles()
         return {"status": "ok"}
 
+    # ── Wind ────────────────────────────────────────────────
+
+    @app.get("/api/wind")
+    def get_wind():
+        w = simulator.environment.wind
+        return sanitize({
+            "enabled": w.enabled,
+            "base_velocity": w.base_velocity.tolist(),
+            "gust_magnitude": w.gust_magnitude,
+            "gust_frequency": w.gust_frequency,
+        })
+
+    @app.post("/api/wind")
+    def set_wind(cfg: WindConfigModel):
+        import numpy as _np
+        w = simulator.environment.wind
+        w.enabled = cfg.enabled
+        w.base_velocity = _np.array(cfg.base_velocity, dtype=float)
+        w.gust_magnitude = cfg.gust_magnitude
+        w.gust_frequency = cfg.gust_frequency
+        return {"status": "ok"}
+
+    # ── Avoidance ────────────────────────────────────────────
+
+    @app.get("/api/avoidance")
+    def get_avoidance():
+        hals = simulator.get_all_hals()
+        if not hals:
+            return {"enabled": False}
+        hal = next(iter(hals.values()))
+        ac = hal._drone.controller.avoidance.config
+        return {
+            "enabled": ac.enabled,
+            "sensor_range": ac.sensor_range,
+            "repulsion_gain": ac.repulsion_gain,
+            "velocity_limit": ac.velocity_limit,
+        }
+
+    @app.post("/api/avoidance")
+    def set_avoidance(cfg: AvoidanceConfigModel):
+        hals = simulator.get_all_hals()
+        for hal in hals.values():
+            ac = hal._drone.controller.avoidance.config
+            ac.enabled = cfg.enabled
+            ac.sensor_range = cfg.sensor_range
+            ac.repulsion_gain = cfg.repulsion_gain
+            ac.velocity_limit = cfg.velocity_limit
+        return {"status": "ok"}
+
     # ── WebSocket ────────────────────────────────────────────
 
     @app.websocket("/api/ws")
@@ -351,6 +414,21 @@ def create_app(simulator, cors_origins: list = None, ws_push_rate: float = 10.0)
             hal = simulator.get_hal(msg.get('drone_id', 0))
             if hal:
                 hal.land()
+        elif action == 'enable_wind':
+            simulator.environment.wind.enabled = True
+        elif action == 'disable_wind':
+            simulator.environment.wind.enabled = False
+        elif action == 'set_wind':
+            import numpy as _np
+            w = simulator.environment.wind
+            if 'base_velocity' in msg:
+                w.base_velocity = _np.array(msg['base_velocity'], dtype=float)
+            if 'gust_magnitude' in msg:
+                w.gust_magnitude = msg['gust_magnitude']
+            if 'gust_frequency' in msg:
+                w.gust_frequency = msg['gust_frequency']
+            if 'enabled' in msg:
+                w.enabled = msg['enabled']
 
     def _build_state_frame() -> dict:
         """Build a JSON-safe state frame for WebSocket push."""

@@ -2,9 +2,12 @@ import time
 import threading
 import queue
 from typing import Dict, Any, Optional, Callable, Tuple
+import numpy as np
 import yaml
 from simulation.swarm import Swarm
 from simulation.sensors import SensorConfig
+from simulation.environment import Environment, WindConfig
+from simulation.flight_controller import FlightControllerConfig
 
 class Simulator:
     """Main simulation engine that manages the drone swarm."""
@@ -70,9 +73,50 @@ class Simulator:
             'crash_speed': 8.0,
         })
 
+        # Load flight controller configuration (including avoidance)
+        fc_cfg = self.config.get('flight_controller', {})
+        self.controller_config = FlightControllerConfig(
+            pos_kp=fc_cfg.get('pos_kp', 0.8),
+            pos_ki=fc_cfg.get('pos_ki', 0.0),
+            pos_kd=fc_cfg.get('pos_kd', 0.2),
+            max_velocity=fc_cfg.get('max_velocity', 8.0),
+            vel_kp=fc_cfg.get('vel_kp', 1.2),
+            vel_ki=fc_cfg.get('vel_ki', 0.05),
+            vel_kd=fc_cfg.get('vel_kd', 0.02),
+            max_tilt_angle=fc_cfg.get('max_tilt_angle', 0.35),
+            alt_kp=fc_cfg.get('alt_kp', 1.0),
+            alt_ki=fc_cfg.get('alt_ki', 0.1),
+            alt_kd=fc_cfg.get('alt_kd', 0.6),
+            max_vertical_vel=fc_cfg.get('max_vertical_vel', 5.0),
+            max_thrust_adjust=fc_cfg.get('max_thrust_adjust', 0.25),
+            att_kp=fc_cfg.get('att_kp', 5.0),
+            att_ki=fc_cfg.get('att_ki', 0.0),
+            att_kd=fc_cfg.get('att_kd', 0.2),
+            max_rate=fc_cfg.get('max_rate', 4.0),
+            rate_kp=fc_cfg.get('rate_kp', 0.3),
+            rate_ki=fc_cfg.get('rate_ki', 0.02),
+            rate_kd=fc_cfg.get('rate_kd', 0.0),
+            avoidance_enabled=fc_cfg.get('avoidance_enabled', False),
+            avoidance_sensor_range=fc_cfg.get('avoidance_sensor_range', 5.0),
+            avoidance_safety_margin=fc_cfg.get('avoidance_safety_margin', 0.5),
+            avoidance_repulsion_gain=fc_cfg.get('avoidance_repulsion_gain', 3.0),
+            avoidance_velocity_limit=fc_cfg.get('avoidance_velocity_limit', 2.0),
+        )
+
+        # Load wind / environment configuration
+        wind_cfg = self.config.get('wind', {})
+        self.environment = Environment(WindConfig(
+            enabled=wind_cfg.get('enabled', False),
+            base_velocity=np.array(wind_cfg.get('base_velocity', [0, 0, 0]), dtype=float),
+            gust_magnitude=wind_cfg.get('gust_magnitude', 2.0),
+            gust_frequency=wind_cfg.get('gust_frequency', 0.1),
+        ))
+
         self.swarm = Swarm(initial_count, drone_colors, spacing, spawn_preset,
                            spawn_altitude, seed, up_axis, sensor_config=self.sensor_config,
-                           collision_config=self.collision_config)
+                           collision_config=self.collision_config,
+                           environment=self.environment,
+                           controller_config=self.controller_config)
 
         # Load obstacle scene from config
         obstacle_cfg = self.config.get('obstacles', {})
@@ -277,6 +321,12 @@ class Simulator:
                 'update_rate': self.update_rate,
                 'spawn_preset': self.swarm.spawn_preset,
                 'obstacles': self.swarm.get_obstacle_states(),
+                'wind': {
+                    'enabled': self.environment.wind.enabled,
+                    'base_velocity': self.environment.wind.base_velocity.tolist(),
+                    'gust_magnitude': self.environment.wind.gust_magnitude,
+                    'gust_frequency': self.environment.wind.gust_frequency,
+                },
             }
             
     def enqueue(self, cmd: str, payload: Optional[Dict[str, Any]] = None):
@@ -377,7 +427,7 @@ class Simulator:
             # Physics only when not paused
             with self.lock:
                 if not self.paused:
-                    self.swarm.update(dt)
+                    self.swarm.update(dt, self.environment)
                 # ALWAYS push state (paused or not)
                 if self.state_update_callback:
                     states = self.swarm.get_states()

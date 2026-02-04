@@ -98,6 +98,13 @@ flight_controller:
   rate_ki: 0.02
   rate_kd: 0.0
 
+  # Obstacle avoidance (APF)
+  avoidance_enabled: false
+  avoidance_sensor_range: 5.0       # meters
+  avoidance_safety_margin: 0.5      # meters extra clearance
+  avoidance_repulsion_gain: 3.0     # repulsion strength
+  avoidance_velocity_limit: 2.0     # max avoidance velocity (m/s)
+
 # Sensor Noise Settings
 sensors:
   perfect_mode: false            # Set true to disable all sensor noise
