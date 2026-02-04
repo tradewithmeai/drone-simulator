@@ -166,3 +166,32 @@ class Camera:
             self.target[0], self.target[1], self.target[2],
             self.up[0], self.up[1], self.up[2]
         )
+
+    @staticmethod
+    def get_fpv_view(drone_state):
+        """Compute FPV camera parameters from drone state.
+
+        Args:
+            drone_state: Dict with 'position' and 'orientation' keys.
+
+        Returns:
+            (eye, center, up) tuple for gluLookAt.
+        """
+        pos = np.array(drone_state['position'])
+        yaw = drone_state['orientation'][2]  # [roll, pitch, yaw]
+
+        eye = pos + np.array([0.0, 0.5, 0.0])  # slightly above drone
+        forward = np.array([math.sin(yaw), 0.0, math.cos(yaw)])
+        center = eye + forward * 5.0
+        up = np.array([0.0, 1.0, 0.0])
+        return eye, center, up
+
+    @staticmethod
+    def apply_fpv_view(drone_state):
+        """Apply FPV camera directly to OpenGL."""
+        eye, center, up = Camera.get_fpv_view(drone_state)
+        gluLookAt(
+            eye[0], eye[1], eye[2],
+            center[0], center[1], center[2],
+            up[0], up[1], up[2],
+        )

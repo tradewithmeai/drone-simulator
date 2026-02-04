@@ -18,6 +18,10 @@ gui:
   show_formation_lines: true  # Formation connection lines
   show_help: false  # Help overlay
   
+  # FPV (first-person view) settings
+  fpv_speed: 5.0          # m/s manual flight speed
+  fpv_yaw_rate: 2.0       # rad/s yaw rotation speed
+
   # Camera settings
   smooth_camera: false  # Temporarily disabled to debug
   camera_smoothing: 0.1  # Interpolation factor (0-1)

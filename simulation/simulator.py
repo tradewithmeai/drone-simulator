@@ -286,6 +286,16 @@ class Simulator:
         """Queue command to clear all obstacles."""
         self.enqueue("CLEAR_OBSTACLES")
 
+    def set_drone_velocity(self, drone_id: int, vx: float, vy: float, vz: float, yaw_rate: float = 0.0):
+        """Queue velocity command for a specific drone (used by FPV manual control)."""
+        self.enqueue("SET_VELOCITY", {
+            'drone_id': drone_id, 'vx': vx, 'vy': vy, 'vz': vz, 'yaw_rate': yaw_rate,
+        })
+
+    def set_drone_position_hold(self, drone_id: int):
+        """Queue command to return a drone to position hold at its current location."""
+        self.enqueue("POSITION_HOLD", {'drone_id': drone_id})
+
     def get_hal(self, drone_id: int):
         """Get the HAL interface for a specific drone.
 
@@ -387,6 +397,18 @@ class Simulator:
                     elif cmd == "CLEAR_OBSTACLES":
                         with self.lock:
                             self.swarm.obstacles.clear_all()
+                    elif cmd == "SET_VELOCITY":
+                        with self.lock:
+                            hal = self.swarm.get_hal(payload['drone_id'])
+                            if hal:
+                                hal.set_velocity(payload['vx'], payload['vy'],
+                                                 payload['vz'], payload['yaw_rate'])
+                    elif cmd == "POSITION_HOLD":
+                        with self.lock:
+                            hal = self.swarm.get_hal(payload['drone_id'])
+                            if hal:
+                                pos = hal._drone.physics.position
+                                hal.set_position(pos[0], pos[1], pos[2])
                     elif cmd == "PAUSE":
                         self.paused = True
                     elif cmd == "RESUME":

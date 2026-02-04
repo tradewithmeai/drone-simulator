@@ -86,6 +86,13 @@ class DroneSwarmGUI:
         self.fps = 0.0
         self.last_fps_update = time.time()
         
+        # FPV mode state
+        self.fpv_mode = False
+        self.fpv_drone_id = None
+        self.fpv_yaw_accumulator = 0.0  # accumulated yaw from mouse input
+        self.fpv_speed = self.gui_config.get('fpv_speed', 5.0)
+        self.fpv_yaw_rate = self.gui_config.get('fpv_yaw_rate', 2.0)
+
         # Auto-spawn flag
         self.auto_spawn_triggered = False
         
@@ -167,7 +174,11 @@ class DroneSwarmGUI:
                     self.mouse_dragging = False
                     
             elif event.type == pygame.MOUSEMOTION:
-                if self.mouse_dragging:
+                if self.fpv_mode:
+                    # In FPV: mouse X controls yaw
+                    dx = event.rel[0]
+                    self.fpv_yaw_accumulator += dx * 0.003
+                elif self.mouse_dragging:
                     current_pos = pygame.mouse.get_pos()
                     dx = current_pos[0] - self.last_mouse_pos[0]
                     dy = current_pos[1] - self.last_mouse_pos[1]
@@ -190,7 +201,20 @@ class DroneSwarmGUI:
                 
     def handle_key_press(self, key, shift_pressed=False):
         """Handle specific key presses."""
-        if key == 'escape' or key == 'q':
+        if key == 'v':
+            self._toggle_fpv()
+            return
+        # In FPV mode, only process ESC (other keys used for flight control)
+        if self.fpv_mode and key != 'escape':
+            return
+        if key == 'escape':
+            if self.fpv_mode:
+                self._exit_fpv()
+                return
+            print("\n[EXIT] User requested exit, shutting down...")
+            self.running = False
+            return
+        if key == 'q' and not self.fpv_mode:
             print("\n[EXIT] User requested exit, shutting down...")
             self.running = False
         elif key == 'p':  # P for pause (instead of space)
@@ -297,9 +321,17 @@ class DroneSwarmGUI:
         """Render the 3D scene."""
         # Clear screen
         self.renderer.clear()
-        
-        # Apply camera
-        self.camera.apply_view_matrix()
+
+        # Apply camera (FPV or orbit)
+        if self.fpv_mode:
+            drone_state = self._get_fpv_drone_state()
+            if drone_state:
+                from gui.camera import Camera
+                Camera.apply_fpv_view(drone_state)
+            else:
+                self.camera.apply_view_matrix()
+        else:
+            self.camera.apply_view_matrix()
         
         # Batch render unlit elements (grid, axes, connections, targets)
         if hasattr(self.renderer, 'begin_unlit_section'):
@@ -400,9 +432,13 @@ class DroneSwarmGUI:
             self.frame_count = 0
             self.last_fps_update = current_time
         
-        # Handle camera movement and smooth interpolation
-        self.camera.handle_keyboard(self.keys_pressed, dt)
-        self.camera.update_smooth_movement(dt)
+        # FPV mode: send velocity commands based on keyboard input
+        if self.fpv_mode:
+            self._update_fpv_input()
+        else:
+            # Normal camera movement and smooth interpolation
+            self.camera.handle_keyboard(self.keys_pressed, dt)
+            self.camera.update_smooth_movement(dt)
         
         # Diagnostic logging every N seconds
         current_time = time.time()
@@ -460,6 +496,97 @@ class DroneSwarmGUI:
         smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
         self.camera = Camera(new_camera_pos, centroid, smooth_camera, smoothing_factor)
         
+    def _toggle_fpv(self):
+        """Toggle FPV mode on the currently locked drone."""
+        if self.fpv_mode:
+            self._exit_fpv()
+            return
+
+        # Need a locked drone to enter FPV
+        if self.camera.locked_drone_id is None:
+            print("[FPV] Lock camera to a drone first (keys 6-9), then press V")
+            return
+
+        drone_id = self.camera.locked_drone_id
+        # Verify drone exists
+        drone_state = next((d for d in self.drone_states if d['id'] == drone_id), None)
+        if drone_state is None:
+            print(f"[FPV] Drone {drone_id} not found")
+            return
+
+        self.fpv_mode = True
+        self.fpv_drone_id = drone_id
+        self.fpv_yaw_accumulator = drone_state['orientation'][2]
+        pygame.event.set_grab(True)
+        pygame.mouse.set_visible(False)
+        print(f"[FPV] Entered FPV mode on Drone {drone_id} — WASD to fly, Mouse to look, V/ESC to exit")
+
+    def _exit_fpv(self):
+        """Exit FPV mode and return drone to position hold."""
+        if not self.fpv_mode:
+            return
+        print(f"[FPV] Exiting FPV mode on Drone {self.fpv_drone_id}")
+        self.simulator.set_drone_position_hold(self.fpv_drone_id)
+        self.fpv_mode = False
+        self.fpv_drone_id = None
+        pygame.event.set_grab(False)
+        pygame.mouse.set_visible(True)
+
+    def _update_fpv_input(self):
+        """Process keyboard input and send velocity commands in FPV mode."""
+        import math
+        drone_state = self._get_fpv_drone_state()
+        if drone_state is None:
+            self._exit_fpv()
+            return
+
+        yaw = self.fpv_yaw_accumulator
+        speed = self.fpv_speed
+
+        # Forward/back and strafe relative to drone yaw
+        forward = 0.0
+        strafe = 0.0
+        vertical = 0.0
+
+        if self.keys_pressed.get('w', False):
+            forward += 1.0
+        if self.keys_pressed.get('s', False):
+            forward -= 1.0
+        if self.keys_pressed.get('d', False):
+            strafe += 1.0
+        if self.keys_pressed.get('a', False):
+            strafe -= 1.0
+        if self.keys_pressed.get('e', False):
+            vertical += 1.0
+        if self.keys_pressed.get('q', False):
+            vertical -= 1.0
+
+        # Rotate velocity by yaw to get world-frame XZ
+        sin_yaw = math.sin(yaw)
+        cos_yaw = math.cos(yaw)
+        vx = (forward * sin_yaw + strafe * cos_yaw) * speed
+        vz = (forward * cos_yaw - strafe * sin_yaw) * speed
+        vy = vertical * speed
+
+        # Yaw rate from mouse delta (accumulator is handled in event loop)
+        # We compute rate from difference between accumulator and drone's current yaw
+        current_yaw = drone_state['orientation'][2]
+        yaw_error = self.fpv_yaw_accumulator - current_yaw
+        # Wrap to [-pi, pi]
+        while yaw_error > math.pi:
+            yaw_error -= 2 * math.pi
+        while yaw_error < -math.pi:
+            yaw_error += 2 * math.pi
+        yaw_rate = yaw_error * self.fpv_yaw_rate
+
+        self.simulator.set_drone_velocity(self.fpv_drone_id, vx, vy, vz, yaw_rate)
+
+    def _get_fpv_drone_state(self):
+        """Get the current state of the FPV drone."""
+        if self.fpv_drone_id is None:
+            return None
+        return next((d for d in self.drone_states if d['id'] == self.fpv_drone_id), None)
+
     def draw_overlays(self):
         """Draw all GUI overlays."""
         self.overlay.clear()
@@ -499,6 +626,18 @@ class DroneSwarmGUI:
         if self.paused:
             self.overlay.draw_text("PAUSED - Press P to resume, O to step", 10, 170, (255, 255, 0))
             
+        # Draw FPV overlay
+        if self.fpv_mode:
+            drone_state = self._get_fpv_drone_state()
+            if drone_state:
+                import math
+                speed = sum(v**2 for v in drone_state['velocity'])**0.5
+                alt = drone_state['position'][1]
+                yaw_deg = math.degrees(drone_state['orientation'][2])
+                self.overlay.draw_text(f"FPV - Drone {self.fpv_drone_id}", 10, 190, (0, 255, 0))
+                self.overlay.draw_text(f"Speed: {speed:.1f} m/s  Alt: {alt:.1f} m  Yaw: {yaw_deg:.0f} deg", 10, 210, (0, 255, 0))
+                self.overlay.draw_text("WASD=Fly  QE=Up/Down  Mouse=Yaw  V/ESC=Exit", 10, 230, (200, 200, 200))
+
         # Draw help overlay
         if self.show_help:
             self.overlay.draw_help_overlay()
