@@ -1,79 +1,134 @@
+"""Individual drone with rigid-body physics and flight controller.
+
+Each Drone composes:
+- QuadrotorPhysics: 6-DOF rigid body simulation
+- FlightController: cascaded PID from position to motor RPMs
+
+The Drone class maintains backward compatibility with the GUI by
+providing the same get_state() dict format, with optional new fields.
+"""
+
 import numpy as np
-from typing import Tuple, List
-import time
+from typing import List
+from simulation.physics import QuadrotorPhysics, PhysicsConfig, quat_to_euler
+from simulation.flight_controller import FlightController, FlightControllerConfig
+
 
 class Drone:
-    """Individual drone with physics simulation and movement control."""
-    
-    def __init__(self, drone_id: int, position: np.ndarray, color: List[float]):
+    """Individual drone with physics simulation and flight control."""
+
+    def __init__(self, drone_id: int, position: np.ndarray, color: List[float],
+                 physics_config: PhysicsConfig = None,
+                 controller_config: FlightControllerConfig = None):
         self.id = drone_id
-        self.position = np.array(position, dtype=float)
-        self.velocity = np.zeros(3, dtype=float)
-        self.target_position = self.position.copy()
         self.color = color
-        self.max_speed = 10.0
-        self.max_acceleration = 5.0
-        self.proportional_gain = 1.2
-        self.convergence_threshold = 0.1
+
+        # Physics engine
+        self.physics = QuadrotorPhysics(physics_config)
+        self.physics.position = np.array(position, dtype=float)
+
+        # Flight controller
+        self.controller = FlightController(self.physics, controller_config)
+
+        # Target tracking (for GUI compatibility and formation system)
+        self.target_position = np.array(position, dtype=float)
+
+        # State
         self.settled = False
+        self.convergence_threshold = 0.3  # slightly larger for physics-based settling
         self.battery_level = 100.0
-        
-    def update(self, delta_time: float):
-        """Update drone physics and movement."""
-        if self.battery_level <= 0:
+        self.crashed = False
+
+        # Battery model
+        self._battery_capacity_wh = 50.0  # watt-hours
+        self._battery_energy_j = self._battery_capacity_wh * 3600  # joules
+
+        # Auto-arm and set to hover at spawn position
+        self.controller.arm()
+        self.controller.set_position(self.physics.position)
+
+    @property
+    def position(self) -> np.ndarray:
+        """Current position (reads from physics engine)."""
+        return self.physics.position
+
+    @position.setter
+    def position(self, value: np.ndarray):
+        """Set position (writes to physics engine)."""
+        self.physics.position = np.array(value, dtype=float)
+
+    @property
+    def velocity(self) -> np.ndarray:
+        """Current velocity (reads from physics engine)."""
+        return self.physics.velocity
+
+    @velocity.setter
+    def velocity(self, value: np.ndarray):
+        """Set velocity (writes to physics engine)."""
+        self.physics.velocity = np.array(value, dtype=float)
+
+    def update(self, delta_time: float, wind_force: np.ndarray = None):
+        """Update drone physics and control for one timestep.
+
+        Args:
+            delta_time: Time step in seconds.
+            wind_force: Optional wind force vector [N] in world frame.
+        """
+        if self.crashed or self.battery_level <= 0:
+            # Dead drone — motors off, gravity only
+            self.physics.set_motor_rpms(np.zeros(4))
+            self.physics.update(delta_time, wind_force)
             return
-            
-        # Calculate desired movement
-        direction = self.target_position - self.position
-        distance = np.linalg.norm(direction)
-        
-        if distance < self.convergence_threshold:
-            # Snap to target when close
-            self.position = self.target_position.copy()
-            self.velocity = np.zeros(3)
-            self.settled = True
-            return
-            
-        # Proportional control with speed limits
-        direction_normalized = direction / distance if distance > 0 else np.zeros(3)
-        desired_speed = min(self.max_speed, self.proportional_gain * distance)
-        desired_velocity = direction_normalized * desired_speed
-        
-        # Apply acceleration constraints
-        velocity_change = desired_velocity - self.velocity
-        acceleration_magnitude = np.linalg.norm(velocity_change) / delta_time
-        
-        if acceleration_magnitude > self.max_acceleration:
-            # Limit acceleration
-            acceleration_direction = velocity_change / np.linalg.norm(velocity_change)
-            max_velocity_change = acceleration_direction * self.max_acceleration * delta_time
-            self.velocity += max_velocity_change
-        else:
-            self.velocity = desired_velocity
-            
-        # Update position
-        self.position += self.velocity * delta_time
-        
-        # Update battery (simple drain based on movement)
-        speed = np.linalg.norm(self.velocity)
-        self.battery_level -= speed * 0.01 * delta_time
-        self.battery_level = max(0, self.battery_level)
-        
-        self.settled = distance < self.convergence_threshold
-        
+
+        # Run flight controller to get motor RPMs
+        motor_rpms = self.controller.update(delta_time)
+        self.physics.set_motor_rpms(motor_rpms)
+
+        # Run physics simulation
+        self.physics.update(delta_time, wind_force)
+
+        # Update battery based on motor power draw
+        power = self.physics.get_power_draw()
+        energy_used = power * delta_time  # joules
+        if self._battery_energy_j > 0:
+            self.battery_level -= (energy_used / self._battery_energy_j) * 100.0
+            self.battery_level = max(0.0, self.battery_level)
+
+        # Update settled state
+        distance = np.linalg.norm(self.target_position - self.physics.position)
+        speed = np.linalg.norm(self.physics.velocity)
+        self.settled = distance < self.convergence_threshold and speed < 0.5
+
     def set_target(self, target: np.ndarray):
-        """Set new target position for the drone."""
+        """Set new target position for the drone.
+
+        This is the primary interface used by the formation system.
+        Routes through the flight controller.
+        """
         self.target_position = np.array(target, dtype=float)
         self.settled = False
-        
+        self.controller.set_position(self.target_position)
+
     def get_state(self) -> dict:
-        """Get current drone state for GUI updates."""
+        """Get current drone state for GUI updates.
+
+        Maintains backward compatibility with the existing GUI while
+        adding new physics fields.
+        """
+        euler = quat_to_euler(self.physics.orientation)
         return {
             'id': self.id,
-            'position': self.position.tolist(),
-            'velocity': self.velocity.tolist(),
+            'position': self.physics.position.tolist(),
+            'velocity': self.physics.velocity.tolist(),
             'target': self.target_position.tolist(),
             'color': self.color,
             'battery': self.battery_level,
-            'settled': self.settled
+            'settled': self.settled,
+            # New fields (GUI ignores unknown keys)
+            'orientation': euler.tolist(),  # [roll, pitch, yaw] radians
+            'angular_velocity': self.physics.angular_velocity.tolist(),
+            'motor_rpms': self.physics.motor_rpms.tolist(),
+            'armed': self.controller.armed,
+            'mode': self.controller.mode,
+            'crashed': self.crashed,
         }

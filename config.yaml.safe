@@ -30,6 +30,27 @@ drones:
   spacing: 5.0
   spawn_altitude: 10.0
   spawn_preset: v
+flight_controller:
+  alt_kd: 0.6
+  alt_ki: 0.1
+  alt_kp: 1.0
+  att_kd: 0.2
+  att_ki: 0.0
+  att_kp: 5.0
+  max_rate: 4.0
+  max_thrust_adjust: 0.25
+  max_tilt_angle: 0.35
+  max_velocity: 8.0
+  max_vertical_vel: 5.0
+  pos_kd: 0.2
+  pos_ki: 0.0
+  pos_kp: 0.8
+  rate_kd: 0.0
+  rate_ki: 0.02
+  rate_kp: 0.3
+  vel_kd: 0.02
+  vel_ki: 0.05
+  vel_kp: 1.2
 formation:
   patterns:
   - line
@@ -60,8 +81,28 @@ gui:
   up_axis: y
   window_height: 600
   window_width: 800
+physics:
+  angular_drag: 0.05
+  arm_length: 0.25
+  drag_coeff: 0.1
+  gravity: 9.81
+  inertia_xx: 0.02
+  inertia_yy: 0.04
+  inertia_zz: 0.02
+  mass: 1.5
+  max_rpm: 8000.0
+  min_rpm: 0.0
+  motor_thrust_coeff: 1.9e-07
+  motor_time_constant: 0.02
+  motor_torque_coeff: 5.0e-09
 simulation:
-  max_acceleration: 5.0
-  max_speed: 10.0
   update_rate: 60
 use_gui: true
+wind:
+  base_velocity:
+  - 0.0
+  - 0.0
+  - 0.0
+  enabled: false
+  gust_frequency: 0.1
+  gust_magnitude: 2.0

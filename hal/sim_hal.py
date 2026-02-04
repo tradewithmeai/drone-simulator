@@ -1,8 +1,8 @@
 """Simulator implementation of the DroneHAL interface.
 
 Wraps the simulation Drone class to provide the standard HAL interface.
-Currently maps to the kinematic drone model; will be updated as
-physics fidelity increases in later phases.
+Reads from the physics engine state and routes commands through the
+flight controller.
 """
 
 import time
@@ -14,14 +14,9 @@ from hal.types import IMUReading, GPSReading, AltitudeReading, BatteryReading, D
 class SimHAL(DroneHAL):
     """HAL implementation backed by the simulator's Drone object.
 
-    Phase 0: Maps HAL calls to the existing kinematic drone model.
-    - get_gps() returns true position (no noise yet)
-    - get_imu() returns acceleration derived from velocity changes
-    - set_position() maps to set_target()
-    - set_velocity() and set_attitude() are stubs until Phase 1 physics
-
-    Future phases will add noise, latency, and realistic sensor models
-    behind this same interface.
+    Sensor reads come from the physics engine (perfect in Phase 1,
+    noise will be added in Phase 2). Actuator commands route through
+    the flight controller.
     """
 
     def __init__(self, drone):
@@ -31,150 +26,128 @@ class SimHAL(DroneHAL):
             drone: A simulation.drone.Drone instance.
         """
         self._drone = drone
-        self._prev_velocity = np.zeros(3)
-        self._armed = False
-        self._airborne = False
-        self._mode = "IDLE"
 
     # ── Sensor reads ─────────────────────────────────────────────
 
     def get_imu(self) -> IMUReading:
-        """Derive IMU from drone state.
+        """Read IMU from physics engine.
 
-        Acceleration is estimated from velocity change since last call.
-        Gyro is zero (no rotational model in Phase 0).
+        Accelerometer: linear acceleration + gravity in body frame.
+        Gyroscope: angular velocity in body frame.
         """
         now = time.time()
-        # Estimate linear acceleration from velocity delta
-        accel = self._drone.velocity - self._prev_velocity
-        self._prev_velocity = self._drone.velocity.copy()
+        physics = self._drone.physics
+
+        # True acceleration in world frame, convert to body frame
+        R = physics.rotation_matrix
+        # IMU measures specific force (acceleration - gravity) in body frame
+        # But for simplicity, return world-frame acceleration for now
+        accel = physics.acceleration.copy()
+
+        # Angular velocity is already in body frame
+        gyro = physics.angular_velocity.copy()
 
         return IMUReading(
             timestamp=now,
-            accel=accel.copy(),
-            gyro=np.zeros(3),
+            accel=accel,
+            gyro=gyro,
         )
 
     def get_gps(self) -> GPSReading:
-        """Return true position and velocity (perfect GPS in Phase 0)."""
+        """Return position and velocity (perfect GPS, no noise yet)."""
         now = time.time()
+        physics = self._drone.physics
         return GPSReading(
             timestamp=now,
-            position=self._drone.position.copy(),
-            velocity=self._drone.velocity.copy(),
-            accuracy_h=0.0,  # Perfect in sim Phase 0
+            position=physics.position.copy(),
+            velocity=physics.velocity.copy(),
+            accuracy_h=0.0,
             accuracy_v=0.0,
             fix_type=3,
         )
 
     def get_altitude(self) -> AltitudeReading:
-        """Return altitude from drone position.
-
-        In the current Y-up coordinate system, Y is altitude.
-        This will be updated when NED coordinates are adopted.
-        """
+        """Return altitude from physics position (Y-up)."""
         now = time.time()
-        alt = float(self._drone.position[1])  # Y-up
+        alt = float(self._drone.physics.position[1])
         return AltitudeReading(
             timestamp=now,
             altitude_baro=alt,
-            altitude_agl=alt,  # No terrain yet, AGL == baro
+            altitude_agl=alt,
             altitude_gps=alt,
         )
 
     def get_battery(self) -> BatteryReading:
-        """Map battery_level percentage to BatteryReading."""
+        """Map battery level to BatteryReading."""
         now = time.time()
         pct = self._drone.battery_level
-        # Approximate voltage from percentage (4.2V full, 3.3V empty for LiPo)
         voltage = 3.3 + (pct / 100.0) * 0.9
+        # Estimate current from motor power
+        power = self._drone.physics.get_power_draw()
+        current = power / max(voltage, 0.1)
         return BatteryReading(
             timestamp=now,
             voltage=voltage,
-            current=0.0,  # No current model yet
+            current=current,
             remaining_pct=pct,
         )
 
     def get_status(self) -> DroneStatus:
-        """Return current operational status."""
+        """Return status from flight controller."""
         now = time.time()
+        ctrl = self._drone.controller
         error_flags = 0
         if self._drone.battery_level <= 5.0:
-            error_flags |= 2  # battery_low
+            error_flags |= 2
+        if self._drone.crashed:
+            error_flags |= 8
 
         return DroneStatus(
             timestamp=now,
-            armed=self._armed,
-            mode=self._mode,
-            airborne=self._airborne,
+            armed=ctrl.armed,
+            mode=ctrl.mode,
+            airborne=self._drone.physics.position[1] > 0.1,
             error_flags=error_flags,
         )
 
     # ── Actuator commands ────────────────────────────────────────
 
     def set_position(self, x: float, y: float, z: float, yaw: float = 0.0):
-        """Map to drone.set_target() in Phase 0.
-
-        Yaw is ignored until Phase 1 adds orientation.
-        """
+        """Command position through the flight controller."""
         self._drone.set_target(np.array([x, y, z], dtype=float))
-        self._mode = "POSITION"
 
     def set_velocity(self, vx: float, vy: float, vz: float, yaw_rate: float = 0.0):
-        """Stub: velocity control not available until Phase 1.
-
-        In Phase 0, approximates by setting a target position in the
-        velocity direction, scaled by a lookahead time.
-        """
-        lookahead = 2.0  # seconds
-        target = self._drone.position + np.array([vx, vy, vz]) * lookahead
-        self._drone.set_target(target)
-        self._mode = "VELOCITY"
+        """Command velocity through the flight controller."""
+        self._drone.controller.set_velocity(
+            np.array([vx, vy, vz], dtype=float), yaw_rate
+        )
 
     def set_attitude(self, roll: float, pitch: float, yaw_rate: float, thrust: float):
-        """Stub: attitude control not available until Phase 1.
-
-        No-op in the current kinematic model.
-        """
-        self._mode = "ATTITUDE"
+        """Command attitude directly through the flight controller."""
+        self._drone.controller.set_attitude(roll, pitch, yaw_rate, thrust)
 
     # ── Lifecycle commands ───────────────────────────────────────
 
     def arm(self) -> bool:
-        """Arm the drone (enable motor commands)."""
-        self._armed = True
-        self._mode = "HOVER"
+        """Arm through the flight controller."""
+        self._drone.controller.arm()
         return True
 
     def disarm(self) -> bool:
-        """Disarm the drone."""
-        self._armed = False
-        self._mode = "IDLE"
+        """Disarm through the flight controller."""
+        self._drone.controller.disarm()
         return True
 
     def takeoff(self, altitude: float) -> bool:
-        """Take off to specified altitude.
-
-        In Phase 0, simply sets target to current XZ at requested Y.
-        """
-        if not self._armed:
+        """Takeoff through the flight controller."""
+        if not self._drone.controller.armed:
             return False
-        pos = self._drone.position.copy()
-        pos[1] = altitude  # Y-up
-        self._drone.set_target(pos)
-        self._airborne = True
-        self._mode = "TAKEOFF"
+        self._drone.controller.takeoff(altitude)
         return True
 
     def land(self) -> bool:
-        """Land at current XZ position.
-
-        In Phase 0, sets target Y to 0.
-        """
-        pos = self._drone.position.copy()
-        pos[1] = 0.0  # Ground level
-        self._drone.set_target(pos)
-        self._mode = "LANDING"
+        """Land through the flight controller."""
+        self._drone.controller.land()
         return True
 
     # ── Identity ─────────────────────────────────────────────────

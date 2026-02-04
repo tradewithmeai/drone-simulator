@@ -49,9 +49,62 @@ drones:
 # Simulation Settings
 simulation:
   update_rate: 60              # Hz
-  max_speed: 10.0              # m/s
-  max_acceleration: 5.0        # m/s²
-    
+
+# Physics Settings (QuadrotorPhysics)
+physics:
+  mass: 1.5                    # kg
+  arm_length: 0.25             # meters (motor to center)
+  gravity: 9.81                # m/s^2
+  drag_coeff: 0.1              # linear drag coefficient
+  angular_drag: 0.05           # angular drag coefficient
+  motor_thrust_coeff: 1.9e-7   # thrust = k * rpm^2 (N)
+  motor_torque_coeff: 5.0e-9   # reaction torque = k * rpm^2 (N*m)
+  max_rpm: 8000.0
+  min_rpm: 0.0
+  motor_time_constant: 0.02    # motor response time (seconds)
+  inertia_xx: 0.02             # kg*m^2 (pitch)
+  inertia_yy: 0.04             # kg*m^2 (yaw)
+  inertia_zz: 0.02             # kg*m^2 (roll)
+
+# Flight Controller Settings (cascaded PID)
+flight_controller:
+  # Position → Velocity (outer loop)
+  pos_kp: 0.8
+  pos_ki: 0.0
+  pos_kd: 0.2
+  max_velocity: 8.0            # m/s
+
+  # Velocity → Tilt angle
+  vel_kp: 1.2
+  vel_ki: 0.05
+  vel_kd: 0.02
+  max_tilt_angle: 0.35         # radians (~20 degrees)
+
+  # Altitude PID
+  alt_kp: 1.0
+  alt_ki: 0.1
+  alt_kd: 0.6
+  max_vertical_vel: 5.0        # m/s
+  max_thrust_adjust: 0.25
+
+  # Attitude → Angular rate
+  att_kp: 5.0
+  att_ki: 0.0
+  att_kd: 0.2
+  max_rate: 4.0                # rad/s
+
+  # Angular rate → Motor torques
+  rate_kp: 0.3
+  rate_ki: 0.02
+  rate_kd: 0.0
+
+# Wind / Environment
+wind:
+  enabled: false
+  base_velocity: [0.0, 0.0, 0.0]  # constant wind [vx, vy, vz] m/s
+  gust_magnitude: 2.0              # max gust strength (m/s)
+  gust_frequency: 0.1              # how often gusts change (Hz)
+
 # Formation Settings
 formation:
   spacing: 3.0  # meters
