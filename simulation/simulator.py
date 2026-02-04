@@ -4,6 +4,7 @@ import queue
 from typing import Dict, Any, Optional, Callable, Tuple
 import yaml
 from simulation.swarm import Swarm
+from simulation.sensors import SensorConfig
 
 class Simulator:
     """Main simulation engine that manages the drone swarm."""
@@ -33,7 +34,36 @@ class Simulator:
         spawn_altitude = drone_config['spawn_altitude']
         seed = drone_config['seed']
         
-        self.swarm = Swarm(initial_count, drone_colors, spacing, spawn_preset, spawn_altitude, seed, up_axis)
+        # Load sensor configuration
+        sensor_cfg = self.config.get('sensors', {})
+        imu_cfg = sensor_cfg.get('imu', {})
+        gps_cfg = sensor_cfg.get('gps', {})
+        baro_cfg = sensor_cfg.get('baro', {})
+        rf_cfg = sensor_cfg.get('rangefinder', {})
+        bat_cfg = sensor_cfg.get('battery', {})
+        self.sensor_config = SensorConfig(
+            perfect_mode=sensor_cfg.get('perfect_mode', False),
+            accel_noise_std=imu_cfg.get('accel_noise_std', 0.02),
+            accel_bias_drift=imu_cfg.get('accel_bias_drift', 0.0001),
+            accel_bias_max=imu_cfg.get('accel_bias_max', 0.2),
+            gyro_noise_std=imu_cfg.get('gyro_noise_std', 0.001),
+            gyro_bias_drift=imu_cfg.get('gyro_bias_drift', 0.00005),
+            gyro_bias_max=imu_cfg.get('gyro_bias_max', 0.01),
+            gps_update_rate=gps_cfg.get('update_rate', 10.0),
+            gps_pos_noise_h=gps_cfg.get('pos_noise_h', 1.5),
+            gps_pos_noise_v=gps_cfg.get('pos_noise_v', 3.0),
+            gps_vel_noise_std=gps_cfg.get('vel_noise_std', 0.1),
+            baro_noise_std=baro_cfg.get('noise_std', 0.3),
+            baro_bias_drift=baro_cfg.get('bias_drift', 0.001),
+            baro_bias_max=baro_cfg.get('bias_max', 2.0),
+            rangefinder_noise_std=rf_cfg.get('noise_std', 0.02),
+            rangefinder_max_range=rf_cfg.get('max_range', 40.0),
+            battery_voltage_noise_std=bat_cfg.get('voltage_noise_std', 0.01),
+            battery_current_noise_std=bat_cfg.get('current_noise_std', 0.05),
+        )
+
+        self.swarm = Swarm(initial_count, drone_colors, spacing, spawn_preset,
+                           spawn_altitude, seed, up_axis, sensor_config=self.sensor_config)
         
         # Store auto-spawn settings for later use
         self.auto_spawn_config = {

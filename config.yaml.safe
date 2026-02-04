@@ -95,6 +95,30 @@ physics:
   motor_thrust_coeff: 1.9e-07
   motor_time_constant: 0.02
   motor_torque_coeff: 5.0e-09
+sensors:
+  baro:
+    bias_drift: 0.001
+    bias_max: 2.0
+    noise_std: 0.3
+  battery:
+    current_noise_std: 0.05
+    voltage_noise_std: 0.01
+  gps:
+    pos_noise_h: 1.5
+    pos_noise_v: 3.0
+    update_rate: 10.0
+    vel_noise_std: 0.1
+  imu:
+    accel_bias_drift: 0.0001
+    accel_bias_max: 0.2
+    accel_noise_std: 0.02
+    gyro_bias_drift: 5.0e-05
+    gyro_bias_max: 0.01
+    gyro_noise_std: 0.001
+  perfect_mode: false
+  rangefinder:
+    max_range: 40.0
+    noise_std: 0.02
 simulation:
   update_rate: 60
 use_gui: true

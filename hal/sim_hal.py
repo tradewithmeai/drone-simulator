@@ -30,67 +30,42 @@ class SimHAL(DroneHAL):
     # ── Sensor reads ─────────────────────────────────────────────
 
     def get_imu(self) -> IMUReading:
-        """Read IMU from physics engine.
-
-        Accelerometer: linear acceleration + gravity in body frame.
-        Gyroscope: angular velocity in body frame.
-        """
-        now = time.time()
-        physics = self._drone.physics
-
-        # True acceleration in world frame, convert to body frame
-        R = physics.rotation_matrix
-        # IMU measures specific force (acceleration - gravity) in body frame
-        # But for simplicity, return world-frame acceleration for now
-        accel = physics.acceleration.copy()
-
-        # Angular velocity is already in body frame
-        gyro = physics.angular_velocity.copy()
-
-        return IMUReading(
-            timestamp=now,
-            accel=accel,
-            gyro=gyro,
-        )
+        """Read IMU with realistic noise (body-frame specific force + gyro)."""
+        return self._drone.sensors.get_imu(self._drone.physics, time.time())
 
     def get_gps(self) -> GPSReading:
-        """Return position and velocity (perfect GPS, no noise yet)."""
-        now = time.time()
-        physics = self._drone.physics
-        return GPSReading(
-            timestamp=now,
-            position=physics.position.copy(),
-            velocity=physics.velocity.copy(),
-            accuracy_h=0.0,
-            accuracy_v=0.0,
-            fix_type=3,
-        )
+        """Read GPS with rate limiting and position/velocity noise."""
+        return self._drone.sensors.get_gps(self._drone.physics, time.time())
 
     def get_altitude(self) -> AltitudeReading:
-        """Return altitude from physics position (Y-up)."""
-        now = time.time()
-        alt = float(self._drone.physics.position[1])
-        return AltitudeReading(
-            timestamp=now,
-            altitude_baro=alt,
-            altitude_agl=alt,
-            altitude_gps=alt,
-        )
+        """Read altitude from barometer, rangefinder, and GPS."""
+        return self._drone.sensors.get_altitude(self._drone.physics, time.time())
 
     def get_battery(self) -> BatteryReading:
-        """Map battery level to BatteryReading."""
-        now = time.time()
+        """Read battery with ADC noise."""
         pct = self._drone.battery_level
         voltage = 3.3 + (pct / 100.0) * 0.9
-        # Estimate current from motor power
         power = self._drone.physics.get_power_draw()
         current = power / max(voltage, 0.1)
-        return BatteryReading(
-            timestamp=now,
-            voltage=voltage,
-            current=current,
-            remaining_pct=pct,
-        )
+        return self._drone.sensors.get_battery(pct, voltage, current, time.time())
+
+    def get_ground_truth(self) -> dict:
+        """Get perfect ground truth state for debugging and analysis.
+
+        Returns physics engine state with no noise applied.
+        """
+        physics = self._drone.physics
+        return {
+            'position': physics.position.copy(),
+            'velocity': physics.velocity.copy(),
+            'acceleration': physics.acceleration.copy(),
+            'orientation': physics.orientation.copy(),
+            'angular_velocity': physics.angular_velocity.copy(),
+            'euler_angles': physics.get_euler_angles().copy(),
+            'motor_rpms': physics.motor_rpms.copy(),
+            'battery_level': self._drone.battery_level,
+            'crashed': self._drone.crashed,
+        }
 
     def get_status(self) -> DroneStatus:
         """Return status from flight controller."""

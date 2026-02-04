@@ -12,6 +12,7 @@ import numpy as np
 from typing import List
 from simulation.physics import QuadrotorPhysics, PhysicsConfig, quat_to_euler
 from simulation.flight_controller import FlightController, FlightControllerConfig
+from simulation.sensors import SensorSuite, SensorConfig
 
 
 class Drone:
@@ -19,7 +20,8 @@ class Drone:
 
     def __init__(self, drone_id: int, position: np.ndarray, color: List[float],
                  physics_config: PhysicsConfig = None,
-                 controller_config: FlightControllerConfig = None):
+                 controller_config: FlightControllerConfig = None,
+                 sensor_config: SensorConfig = None):
         self.id = drone_id
         self.color = color
 
@@ -29,6 +31,9 @@ class Drone:
 
         # Flight controller
         self.controller = FlightController(self.physics, controller_config)
+
+        # Sensor suite (independent noise per drone, seeded by ID)
+        self.sensors = SensorSuite(sensor_config, seed=drone_id)
 
         # Target tracking (for GUI compatibility and formation system)
         self.target_position = np.array(position, dtype=float)

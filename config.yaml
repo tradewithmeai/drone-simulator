@@ -98,6 +98,37 @@ flight_controller:
   rate_ki: 0.02
   rate_kd: 0.0
 
+# Sensor Noise Settings
+sensors:
+  perfect_mode: false            # Set true to disable all sensor noise
+
+  imu:
+    accel_noise_std: 0.02        # m/s^2 white noise
+    accel_bias_drift: 0.0001     # m/s^2 per tick random walk
+    accel_bias_max: 0.2          # m/s^2 max accumulated bias
+    gyro_noise_std: 0.001        # rad/s white noise
+    gyro_bias_drift: 0.00005     # rad/s per tick random walk
+    gyro_bias_max: 0.01          # rad/s max accumulated bias
+
+  gps:
+    update_rate: 10.0            # Hz (consumer GPS is 5-10 Hz)
+    pos_noise_h: 1.5             # meters horizontal std dev
+    pos_noise_v: 3.0             # meters vertical std dev
+    vel_noise_std: 0.1           # m/s velocity std dev
+
+  baro:
+    noise_std: 0.3               # meters white noise
+    bias_drift: 0.001            # meters per tick random walk
+    bias_max: 2.0                # meters max accumulated bias
+
+  rangefinder:
+    noise_std: 0.02              # meters
+    max_range: 40.0              # meters (returns -1 beyond this)
+
+  battery:
+    voltage_noise_std: 0.01      # volts
+    current_noise_std: 0.05      # amps
+
 # Wind / Environment
 wind:
   enabled: false

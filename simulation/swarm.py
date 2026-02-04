@@ -8,15 +8,17 @@ from hal.sim_hal import SimHAL
 
 class Swarm:
     """Manages multiple drones and formation control."""
-    
-    def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0, 
-                 spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42, up_axis: str = "y"):
+
+    def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0,
+                 spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42,
+                 up_axis: str = "y", sensor_config=None):
         self.spacing = spacing
         self.spawn_preset = spawn_preset
         self.spawn_altitude = spawn_altitude
         self.spawn_seed = seed
         self.up_axis = up_axis
         self.drone_colors = drone_colors
+        self.sensor_config = sensor_config
         self.drones = []
         self._hal_instances: Dict[int, SimHAL] = {}
 
@@ -38,7 +40,7 @@ class Swarm:
         for i in range(num_drones):
             position = mapped_positions[i] if i < len(mapped_positions) else [0, self.spawn_altitude, 0]
             color = self.drone_colors[i % len(self.drone_colors)]
-            drone = Drone(i, position, color)
+            drone = Drone(i, position, color, sensor_config=self.sensor_config)
             # Set both position and target to spawned location
             drone.target_position = np.array(position, dtype=float)
             self.drones.append(drone)
