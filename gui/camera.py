@@ -180,8 +180,8 @@ class Camera:
         pos = np.array(drone_state['position'])
         yaw = drone_state['orientation'][2]  # [roll, pitch, yaw]
 
-        eye = pos + np.array([0.0, 0.5, 0.0])  # slightly above drone
         forward = np.array([math.sin(yaw), 0.0, math.cos(yaw)])
+        eye = pos + np.array([0.0, 0.5, 0.0]) + forward * 1.5  # above and in front
         center = eye + forward * 5.0
         up = np.array([0.0, 1.0, 0.0])
         return eye, center, up

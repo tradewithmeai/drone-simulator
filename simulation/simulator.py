@@ -286,6 +286,10 @@ class Simulator:
         """Queue command to clear all obstacles."""
         self.enqueue("CLEAR_OBSTACLES")
 
+    def remove_obstacle_by_index(self, index: int):
+        """Queue command to remove obstacle at a specific index in creation order."""
+        self.enqueue("REMOVE_OBSTACLE_IDX", {'index': index})
+
     def set_drone_velocity(self, drone_id: int, vx: float, vy: float, vz: float, yaw_rate: float = 0.0):
         """Queue velocity command for a specific drone (used by FPV manual control)."""
         self.enqueue("SET_VELOCITY", {
@@ -394,6 +398,9 @@ class Simulator:
                     elif cmd == "REMOVE_OBSTACLE":
                         with self.lock:
                             self.swarm.obstacles.remove_last()
+                    elif cmd == "REMOVE_OBSTACLE_IDX":
+                        with self.lock:
+                            self.swarm.obstacles.remove_by_index(payload['index'])
                     elif cmd == "CLEAR_OBSTACLES":
                         with self.lock:
                             self.swarm.obstacles.clear_all()

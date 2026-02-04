@@ -109,6 +109,23 @@ class ObstacleManager:
         elif kind == 'cyl' and idx < len(self.cylinders):
             self.cylinders.pop(idx)
 
+    def remove_by_index(self, order_index: int):
+        """Remove obstacle at the given position in the creation order."""
+        if order_index < 0 or order_index >= len(self._order):
+            return
+        kind, idx = self._order.pop(order_index)
+        if kind == 'box' and idx < len(self.boxes):
+            self.boxes.pop(idx)
+            # Fix indices in _order that pointed to boxes after the removed one
+            for i, (k, j) in enumerate(self._order):
+                if k == 'box' and j > idx:
+                    self._order[i] = ('box', j - 1)
+        elif kind == 'cyl' and idx < len(self.cylinders):
+            self.cylinders.pop(idx)
+            for i, (k, j) in enumerate(self._order):
+                if k == 'cyl' and j > idx:
+                    self._order[i] = ('cyl', j - 1)
+
     def clear_all(self):
         """Remove all obstacles."""
         self.boxes.clear()

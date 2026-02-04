@@ -86,6 +86,16 @@ class DroneSwarmGUI:
         self.fps = 0.0
         self.last_fps_update = time.time()
         
+        # Placement mode state
+        self.placement_mode = False
+        self.placement_delete_mode = False
+        self.placement_cursor = [0.0, 0.0]  # X, Z on ground
+        self.placement_type = 'box'  # 'box' or 'cylinder'
+        self.placement_box_size = [4.0, 4.0, 4.0]
+        self.placement_cyl_size = [2.0, 8.0]  # radius, height
+        self.placement_selected_idx = -1
+        self.placement_cursor_speed = 2.0
+
         # FPV mode state
         self.fpv_mode = False
         self.fpv_drone_id = None
@@ -204,6 +214,32 @@ class DroneSwarmGUI:
         if key == 'v':
             self._toggle_fpv()
             return
+        # J key: toggle placement mode
+        if key == 'j' and not self.fpv_mode:
+            if shift_pressed and self.placement_mode:
+                # Shift+J: toggle delete sub-mode
+                self.placement_delete_mode = not self.placement_delete_mode
+                if self.placement_delete_mode:
+                    self.placement_selected_idx = 0 if self.obstacle_states else -1
+                    print("[PLACEMENT] Delete mode ON — Left/Right to select, Del to remove")
+                else:
+                    self.placement_selected_idx = -1
+                    print("[PLACEMENT] Delete mode OFF")
+            else:
+                self.placement_mode = not self.placement_mode
+                self.placement_delete_mode = False
+                self.placement_selected_idx = -1
+                if self.placement_mode:
+                    print("[PLACEMENT] Placement mode ON — Arrows=Move  B=Type  Enter=Place  J=Exit")
+                else:
+                    print("[PLACEMENT] Placement mode OFF")
+            return
+
+        # In placement mode, handle placement-specific keys
+        if self.placement_mode:
+            self._handle_placement_key(key, shift_pressed)
+            return
+
         # In FPV mode, only process ESC (other keys used for flight control)
         if self.fpv_mode and key != 'escape':
             return
@@ -361,9 +397,19 @@ class DroneSwarmGUI:
             if self.drone_states:
                 self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
 
-            # Draw obstacles (lit)
+            # Draw obstacles (lit) with optional highlight
             if self.show_obstacles and self.obstacle_states:
-                self.renderer.draw_all_obstacles(self.obstacle_states)
+                highlight = self.placement_selected_idx if self.placement_delete_mode else -1
+                self.renderer.draw_all_obstacles(self.obstacle_states, highlight)
+
+            # Draw placement cursor
+            if self.placement_mode and not self.placement_delete_mode:
+                if self.placement_type == 'box':
+                    cursor_size = self.placement_box_size
+                else:
+                    cursor_size = self.placement_cyl_size
+                self.renderer.draw_placement_cursor(
+                    self.placement_cursor, self.placement_type, cursor_size)
 
             # Draw all labels (batched, no depth test)
             if self.show_labels and self.drone_states:
@@ -385,29 +431,37 @@ class DroneSwarmGUI:
                     self.sim_info.get('current_formation', '')
                 )
                 
-            # Draw drones
+            # Draw drones (batched quad-prop model)
+            if self.drone_states:
+                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
+
+            # Draw targets
             for drone_state in self.drone_states:
-                position = drone_state['position']
-                color = drone_state['color']
-                settled = drone_state['settled']
-                size = self.config['drones']['size']
-                drone_id = drone_state['id']
-                
-                crashed = drone_state.get('crashed', False)
-                self.renderer.draw_drone(position, color, size, settled, crashed)
-                
-                # Draw target position
                 if self.show_targets:
                     target = drone_state['target']
+                    color = drone_state['color']
                     self.renderer.draw_target(target, color)
-                    
+
                 # Draw drone labels
                 if self.show_labels:
+                    position = drone_state['position']
+                    drone_id = drone_state['id']
+                    color = drone_state['color']
                     self.renderer.draw_drone_label(position, drone_id, color, self.camera.position)
 
             # Draw obstacles (fallback renderer)
             if self.show_obstacles and self.obstacle_states:
-                self.renderer.draw_all_obstacles(self.obstacle_states)
+                highlight = self.placement_selected_idx if self.placement_delete_mode else -1
+                self.renderer.draw_all_obstacles(self.obstacle_states, highlight)
+
+            # Draw placement cursor
+            if self.placement_mode and not self.placement_delete_mode:
+                if self.placement_type == 'box':
+                    cursor_size = self.placement_box_size
+                else:
+                    cursor_size = self.placement_cyl_size
+                self.renderer.draw_placement_cursor(
+                    self.placement_cursor, self.placement_type, cursor_size)
 
         # Draw overlays with error handling
         if self.enable_overlay:
@@ -496,6 +550,71 @@ class DroneSwarmGUI:
         smoothing_factor = self.gui_config.get('camera_smoothing', 0.1)
         self.camera = Camera(new_camera_pos, centroid, smooth_camera, smoothing_factor)
         
+    def _handle_placement_key(self, key, shift_pressed):
+        """Handle keys while in placement mode."""
+        speed = self.placement_cursor_speed
+
+        if self.placement_delete_mode:
+            # Delete sub-mode: scroll and remove
+            if key == 'right' and self.obstacle_states:
+                self.placement_selected_idx = (self.placement_selected_idx + 1) % len(self.obstacle_states)
+            elif key == 'left' and self.obstacle_states:
+                self.placement_selected_idx = (self.placement_selected_idx - 1) % len(self.obstacle_states)
+            elif key in ('delete', 'backspace') and 0 <= self.placement_selected_idx < len(self.obstacle_states):
+                print(f"[PLACEMENT] Removing obstacle {self.placement_selected_idx}")
+                self.simulator.remove_obstacle_by_index(self.placement_selected_idx)
+                if self.placement_selected_idx >= len(self.obstacle_states) - 1:
+                    self.placement_selected_idx = max(0, len(self.obstacle_states) - 2)
+            elif key == 'escape':
+                self.placement_delete_mode = False
+                self.placement_selected_idx = -1
+            return
+
+        # Normal placement mode
+        if key == 'up':
+            self.placement_cursor[1] -= speed  # -Z = forward in default view
+        elif key == 'down':
+            self.placement_cursor[1] += speed
+        elif key == 'left':
+            self.placement_cursor[0] -= speed
+        elif key == 'right':
+            self.placement_cursor[0] += speed
+        elif key == 'b':
+            self.placement_type = 'cylinder' if self.placement_type == 'box' else 'box'
+            print(f"[PLACEMENT] Type: {self.placement_type}")
+        elif key == 'return':
+            cx, cz = self.placement_cursor
+            if self.placement_type == 'box':
+                sz = self.placement_box_size
+                pos = [cx, sz[1] / 2.0, cz]  # center Y at half height
+                self.simulator.add_box_obstacle(pos, sz)
+                print(f"[PLACEMENT] Placed box at ({cx:.1f}, {cz:.1f})")
+            else:
+                r, h = self.placement_cyl_size
+                pos = [cx, 0.0, cz]  # base on ground
+                self.simulator.add_cylinder_obstacle(pos, r, h)
+                print(f"[PLACEMENT] Placed cylinder at ({cx:.1f}, {cz:.1f})")
+        elif key in ('=', 'plus', ']'):  # increase size
+            if self.placement_type == 'box':
+                self.placement_box_size = [s + 1.0 for s in self.placement_box_size]
+                print(f"[PLACEMENT] Box size: {self.placement_box_size}")
+            else:
+                self.placement_cyl_size[0] += 0.5
+                self.placement_cyl_size[1] += 2.0
+                print(f"[PLACEMENT] Cylinder: r={self.placement_cyl_size[0]:.1f} h={self.placement_cyl_size[1]:.1f}")
+        elif key in ('-', 'minus', '['):  # decrease size
+            if self.placement_type == 'box':
+                self.placement_box_size = [max(1.0, s - 1.0) for s in self.placement_box_size]
+                print(f"[PLACEMENT] Box size: {self.placement_box_size}")
+            else:
+                self.placement_cyl_size[0] = max(0.5, self.placement_cyl_size[0] - 0.5)
+                self.placement_cyl_size[1] = max(2.0, self.placement_cyl_size[1] - 2.0)
+                print(f"[PLACEMENT] Cylinder: r={self.placement_cyl_size[0]:.1f} h={self.placement_cyl_size[1]:.1f}")
+        elif key == 'escape':
+            self.placement_mode = False
+            self.placement_delete_mode = False
+            print("[PLACEMENT] Placement mode OFF")
+
     def _toggle_fpv(self):
         """Toggle FPV mode on the currently locked drone."""
         if self.fpv_mode:
@@ -637,6 +756,26 @@ class DroneSwarmGUI:
                 self.overlay.draw_text(f"FPV - Drone {self.fpv_drone_id}", 10, 190, (0, 255, 0))
                 self.overlay.draw_text(f"Speed: {speed:.1f} m/s  Alt: {alt:.1f} m  Yaw: {yaw_deg:.0f} deg", 10, 210, (0, 255, 0))
                 self.overlay.draw_text("WASD=Fly  QE=Up/Down  Mouse=Yaw  V/ESC=Exit", 10, 230, (200, 200, 200))
+
+        # Draw placement mode overlay
+        if self.placement_mode:
+            y_start = 190 if not self.fpv_mode else 250
+            if self.placement_delete_mode:
+                self.overlay.draw_text("DELETE MODE", 10, y_start, (255, 80, 80))
+                n = len(self.obstacle_states)
+                sel = self.placement_selected_idx
+                self.overlay.draw_text(f"Selected: {sel + 1}/{n}" if n > 0 else "No obstacles", 10, y_start + 20, (255, 200, 200))
+                self.overlay.draw_text("Left/Right=Select  Del=Remove  Shift+J=Back  J=Exit", 10, y_start + 40, (200, 200, 200))
+            else:
+                cx, cz = self.placement_cursor
+                self.overlay.draw_text("PLACEMENT MODE", 10, y_start, (0, 255, 100))
+                if self.placement_type == 'box':
+                    sz = self.placement_box_size
+                    self.overlay.draw_text(f"Type: Box ({sz[0]:.0f}x{sz[1]:.0f}x{sz[2]:.0f})  Pos: ({cx:.1f}, {cz:.1f})", 10, y_start + 20, (200, 255, 200))
+                else:
+                    r, h = self.placement_cyl_size
+                    self.overlay.draw_text(f"Type: Cylinder (r={r:.1f} h={h:.1f})  Pos: ({cx:.1f}, {cz:.1f})", 10, y_start + 20, (200, 255, 200))
+                self.overlay.draw_text("Arrows=Move  B=Type  Enter=Place  +/-=Size  Shift+J=Delete  J=Exit", 10, y_start + 40, (200, 200, 200))
 
         # Draw help overlay
         if self.show_help:
