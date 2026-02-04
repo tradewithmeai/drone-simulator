@@ -136,6 +136,34 @@ wind:
   gust_magnitude: 2.0              # max gust strength (m/s)
   gust_frequency: 0.1              # how often gusts change (Hz)
 
+# Collision Detection
+collision:
+  enabled: true
+  drone_radius: 0.3            # meters (sphere radius for collision)
+  restitution: 0.3             # coefficient of restitution (0=perfectly inelastic, 1=elastic)
+  crash_speed: 8.0             # m/s relative impact speed that causes crash
+
+# Obstacles (static environment objects)
+obstacles:
+  enabled: true
+  preset_scene: "default"
+  scenes:
+    empty: []
+    default:
+      - type: box
+        position: [10, 2, 0]
+        size: [4, 4, 4]
+        color: [0.5, 0.5, 0.5]
+      - type: cylinder
+        position: [-10, 0, 0]
+        radius: 2.0
+        height: 8.0
+        color: [0.6, 0.3, 0.1]
+      - type: box
+        position: [0, 3, 15]
+        size: [8, 6, 2]
+        color: [0.4, 0.4, 0.6]
+
 # Formation Settings
 formation:
   spacing: 3.0  # meters

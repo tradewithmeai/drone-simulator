@@ -4,6 +4,7 @@ import math
 from simulation.drone import Drone
 from simulation.spawn import make_positions
 from simulation.coords import map_positions_list
+from simulation.obstacles import ObstacleManager
 from hal.sim_hal import SimHAL
 
 class Swarm:
@@ -11,7 +12,7 @@ class Swarm:
 
     def __init__(self, num_drones: int, drone_colors: List[List[float]], spacing: float = 3.0,
                  spawn_preset: str = "grid", spawn_altitude: float = 5.0, seed: int = 42,
-                 up_axis: str = "y", sensor_config=None):
+                 up_axis: str = "y", sensor_config=None, collision_config=None):
         self.spacing = spacing
         self.spawn_preset = spawn_preset
         self.spawn_altitude = spawn_altitude
@@ -19,6 +20,13 @@ class Swarm:
         self.up_axis = up_axis
         self.drone_colors = drone_colors
         self.sensor_config = sensor_config
+        self.collision_config = collision_config or {
+            'enabled': True,
+            'drone_radius': 0.3,
+            'restitution': 0.3,
+            'crash_speed': 8.0,
+        }
+        self.obstacles = ObstacleManager()
         self.drones = []
         self._hal_instances: Dict[int, SimHAL] = {}
 
@@ -65,7 +73,89 @@ class Swarm:
         """Update all drones in the swarm."""
         for drone in self.drones:
             drone.update(delta_time)
-            
+        self._detect_collisions()
+
+    def _detect_collisions(self):
+        """Detect and resolve drone-to-drone collisions.
+
+        Uses N^2 pairwise sphere-sphere checks. Applies elastic collision
+        response with configurable restitution and marks drones as crashed
+        if relative impact speed exceeds the crash threshold.
+        """
+        cfg = self.collision_config
+        if not cfg.get('enabled', True):
+            return
+
+        radius = cfg.get('drone_radius', 0.3)
+        restitution = cfg.get('restitution', 0.3)
+        crash_speed = cfg.get('crash_speed', 8.0)
+        min_dist = 2.0 * radius
+
+        n = len(self.drones)
+        for i in range(n):
+            for j in range(i + 1, n):
+                di = self.drones[i]
+                dj = self.drones[j]
+
+                # Skip pairs where both are already crashed
+                if di.crashed and dj.crashed:
+                    continue
+
+                pi = di.physics.position
+                pj = dj.physics.position
+                delta = pj - pi
+                dist = np.linalg.norm(delta)
+
+                if dist < min_dist and dist > 1e-8:
+                    # Collision normal (i -> j)
+                    normal = delta / dist
+
+                    # Separate overlapping drones (push apart equally)
+                    overlap = min_dist - dist
+                    pi -= normal * (overlap * 0.5)
+                    pj += normal * (overlap * 0.5)
+                    di.physics.position = pi
+                    dj.physics.position = pj
+
+                    # Relative velocity along collision normal
+                    v_rel = dj.physics.velocity - di.physics.velocity
+                    v_normal = np.dot(v_rel, normal)
+
+                    # Only resolve if drones are approaching
+                    if v_normal < 0:
+                        impact_speed = abs(v_normal)
+
+                        # Elastic collision impulse (equal mass)
+                        impulse = (1.0 + restitution) * v_normal * 0.5
+                        di.physics.velocity += impulse * normal
+                        dj.physics.velocity -= impulse * normal
+
+                        # Crash check
+                        if impact_speed > crash_speed:
+                            di.crashed = True
+                            dj.crashed = True
+
+        # Drone-to-obstacle collisions
+        for drone in self.drones:
+            if drone.crashed:
+                continue
+            collided, normal, penetration = self.obstacles.check_collision(
+                drone.physics.position, radius
+            )
+            if collided:
+                v_along = np.dot(drone.physics.velocity, normal)
+                if v_along < 0:  # moving toward obstacle
+                    impact_speed = abs(v_along)
+                    drone.physics.velocity -= (1.0 + restitution) * v_along * normal
+                    if impact_speed > crash_speed:
+                        drone.crashed = True
+                # Push drone out of obstacle
+                drone.physics.position += normal * penetration
+
+    def get_obstacle_states(self):
+        """Get obstacle states for GUI rendering."""
+        return self.obstacles.get_states()
+
     def set_formation(self, formation_type: str):
         """Set the formation pattern for the swarm."""
         self.current_formation = formation_type

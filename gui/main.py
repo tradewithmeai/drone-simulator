@@ -73,6 +73,11 @@ class DroneSwarmGUI:
         # Current drone states
         self.drone_states = []
         self.sim_info = {}
+
+        # Obstacle state
+        self.show_obstacles = True
+        self.obstacle_type = 'box'  # current placement type: 'box' or 'cylinder'
+        self.obstacle_states = []
         
         # Timing
         self.clock = pygame.time.Clock()
@@ -98,6 +103,7 @@ class DroneSwarmGUI:
         """Callback for receiving simulation updates."""
         self.drone_states = drone_states
         self.sim_info = sim_info
+        self.obstacle_states = sim_info.get('obstacles', [])
     
     def _ensure_simulator_started(self):
         """Ensure simulator thread is started - can be called multiple times safely."""
@@ -265,6 +271,27 @@ class DroneSwarmGUI:
                     self.camera.unlock_camera()
                 else:
                     self.camera.lock_to_drone(drone_id)
+        # Obstacle controls
+        elif key == 'b':
+            self.obstacle_type = 'cylinder' if self.obstacle_type == 'box' else 'box'
+            print(f"[GUI] Obstacle type: {self.obstacle_type}")
+        elif key == 'n':
+            target = list(self.camera.target)
+            if self.obstacle_type == 'box':
+                self.simulator.add_box_obstacle(target, [4.0, 4.0, 4.0])
+                print(f"[GUI] Placed box at {target}")
+            else:
+                self.simulator.add_cylinder_obstacle(target, 2.0, 8.0)
+                print(f"[GUI] Placed cylinder at {target}")
+        elif key == 'm':
+            if shift_pressed:
+                self.simulator.clear_all_obstacles()
+                print("[GUI] Cleared all obstacles")
+            else:
+                self.simulator.remove_last_obstacle()
+                print("[GUI] Removed last obstacle")
+        elif key == 'k':
+            self.show_obstacles = not self.show_obstacles
             
     def render(self):
         """Render the 3D scene."""
@@ -301,7 +328,11 @@ class DroneSwarmGUI:
             # Draw all drones with lighting enabled (batched)
             if self.drone_states:
                 self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
-            
+
+            # Draw obstacles (lit)
+            if self.show_obstacles and self.obstacle_states:
+                self.renderer.draw_all_obstacles(self.obstacle_states)
+
             # Draw all labels (batched, no depth test)
             if self.show_labels and self.drone_states:
                 self.renderer.begin_unlit_section()
@@ -330,7 +361,8 @@ class DroneSwarmGUI:
                 size = self.config['drones']['size']
                 drone_id = drone_state['id']
                 
-                self.renderer.draw_drone(position, color, size, settled)
+                crashed = drone_state.get('crashed', False)
+                self.renderer.draw_drone(position, color, size, settled, crashed)
                 
                 # Draw target position
                 if self.show_targets:
@@ -340,7 +372,11 @@ class DroneSwarmGUI:
                 # Draw drone labels
                 if self.show_labels:
                     self.renderer.draw_drone_label(position, drone_id, color, self.camera.position)
-                
+
+            # Draw obstacles (fallback renderer)
+            if self.show_obstacles and self.obstacle_states:
+                self.renderer.draw_all_obstacles(self.obstacle_states)
+
         # Draw overlays with error handling
         if self.enable_overlay:
             try:

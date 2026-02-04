@@ -52,13 +52,17 @@ class Renderer:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         
-    def draw_drone(self, position, color, size=0.5, settled=False):
+    def draw_drone(self, position, color, size=0.5, settled=False, crashed=False):
         """Draw a single drone as a colored sphere."""
         glPushMatrix()
         glTranslatef(position[0], position[1], position[2])
-        
+
         # Set drone color
-        if settled:
+        if crashed:
+            # Darkened color for crashed drones
+            glColor3f(color[0] * 0.3, color[1] * 0.3, color[2] * 0.3)
+            size = size * 0.7
+        elif settled:
             # Brighter color when settled
             glColor3f(min(1.0, color[0] * 1.2), min(1.0, color[1] * 1.2), min(1.0, color[2] * 1.2))
         else:
@@ -291,3 +295,74 @@ class Renderer:
                 glVertex2f(x + x1 * width, y + y1 * height)
                 glVertex2f(x + x2 * width, y + y2 * height)
             glEnd()
+
+    def draw_box(self, position, size, color):
+        """Draw an axis-aligned box. Position is center, size is full extents."""
+        glPushMatrix()
+        glTranslatef(position[0], position[1], position[2])
+        glColor3f(*color)
+
+        hx, hy, hz = size[0] / 2.0, size[1] / 2.0, size[2] / 2.0
+
+        glBegin(GL_QUADS)
+        # Front (+Z)
+        glNormal3f(0, 0, 1)
+        glVertex3f(-hx, -hy, hz); glVertex3f(hx, -hy, hz)
+        glVertex3f(hx, hy, hz);   glVertex3f(-hx, hy, hz)
+        # Back (-Z)
+        glNormal3f(0, 0, -1)
+        glVertex3f(-hx, -hy, -hz); glVertex3f(-hx, hy, -hz)
+        glVertex3f(hx, hy, -hz);   glVertex3f(hx, -hy, -hz)
+        # Top (+Y)
+        glNormal3f(0, 1, 0)
+        glVertex3f(-hx, hy, -hz); glVertex3f(-hx, hy, hz)
+        glVertex3f(hx, hy, hz);   glVertex3f(hx, hy, -hz)
+        # Bottom (-Y)
+        glNormal3f(0, -1, 0)
+        glVertex3f(-hx, -hy, -hz); glVertex3f(hx, -hy, -hz)
+        glVertex3f(hx, -hy, hz);   glVertex3f(-hx, -hy, hz)
+        # Right (+X)
+        glNormal3f(1, 0, 0)
+        glVertex3f(hx, -hy, -hz); glVertex3f(hx, hy, -hz)
+        glVertex3f(hx, hy, hz);   glVertex3f(hx, -hy, hz)
+        # Left (-X)
+        glNormal3f(-1, 0, 0)
+        glVertex3f(-hx, -hy, -hz); glVertex3f(-hx, -hy, hz)
+        glVertex3f(-hx, hy, hz);   glVertex3f(-hx, hy, -hz)
+        glEnd()
+
+        glPopMatrix()
+
+    def draw_cylinder(self, position, radius, height, color):
+        """Draw a vertical cylinder. Position is base center."""
+        glPushMatrix()
+        glTranslatef(position[0], position[1], position[2])
+        # gluCylinder draws along Z; rotate so it goes along +Y
+        glRotatef(-90, 1, 0, 0)
+        glColor3f(*color)
+
+        quadric = gluNewQuadric()
+        gluQuadricNormals(quadric, GLU_SMOOTH)
+        gluCylinder(quadric, radius, radius, height, 24, 1)
+        # Top cap
+        glPushMatrix()
+        glTranslatef(0, 0, height)
+        gluDisk(quadric, 0, radius, 24, 1)
+        glPopMatrix()
+        # Bottom cap
+        glPushMatrix()
+        glRotatef(180, 1, 0, 0)
+        gluDisk(quadric, 0, radius, 24, 1)
+        glPopMatrix()
+        gluDeleteQuadric(quadric)
+
+        glPopMatrix()
+
+    def draw_all_obstacles(self, obstacle_states):
+        """Draw all obstacles."""
+        for obs in obstacle_states:
+            if obs['type'] == 'box':
+                self.draw_box(obs['position'], obs['size'], obs['color'])
+            elif obs['type'] == 'cylinder':
+                self.draw_cylinder(obs['position'], obs['radius'],
+                                   obs['height'], obs['color'])

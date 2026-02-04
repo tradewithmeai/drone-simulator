@@ -62,9 +62,27 @@ class Simulator:
             battery_current_noise_std=bat_cfg.get('current_noise_std', 0.05),
         )
 
+        # Load collision configuration
+        self.collision_config = self.config.get('collision', {
+            'enabled': True,
+            'drone_radius': 0.3,
+            'restitution': 0.3,
+            'crash_speed': 8.0,
+        })
+
         self.swarm = Swarm(initial_count, drone_colors, spacing, spawn_preset,
-                           spawn_altitude, seed, up_axis, sensor_config=self.sensor_config)
-        
+                           spawn_altitude, seed, up_axis, sensor_config=self.sensor_config,
+                           collision_config=self.collision_config)
+
+        # Load obstacle scene from config
+        obstacle_cfg = self.config.get('obstacles', {})
+        if obstacle_cfg.get('enabled', False):
+            preset = obstacle_cfg.get('preset_scene', 'default')
+            scenes = obstacle_cfg.get('scenes', {})
+            if preset in scenes:
+                self.swarm.obstacles.load_scene(scenes[preset])
+                print(f"[SIM] Loaded obstacle scene '{preset}' with {len(scenes[preset])} objects")
+
         # Store auto-spawn settings for later use
         self.auto_spawn_config = {
             'enabled': auto_spawn,
@@ -199,6 +217,31 @@ class Simulator:
         else:
             print("Auto-spawn disabled in configuration")
             
+    def add_box_obstacle(self, position, size, color=None):
+        """Queue command to add a box obstacle."""
+        self.enqueue("ADD_BOX", {
+            'position': position,
+            'size': size,
+            'color': color,
+        })
+
+    def add_cylinder_obstacle(self, position, radius, height, color=None):
+        """Queue command to add a cylinder obstacle."""
+        self.enqueue("ADD_CYLINDER", {
+            'position': position,
+            'radius': radius,
+            'height': height,
+            'color': color,
+        })
+
+    def remove_last_obstacle(self):
+        """Queue command to remove the last obstacle."""
+        self.enqueue("REMOVE_OBSTACLE")
+
+    def clear_all_obstacles(self):
+        """Queue command to clear all obstacles."""
+        self.enqueue("CLEAR_OBSTACLES")
+
     def get_hal(self, drone_id: int):
         """Get the HAL interface for a specific drone.
 
@@ -232,7 +275,8 @@ class Simulator:
                 'formation_progress': self.swarm.get_formation_progress(),
                 'num_drones': len(self.swarm.drones),
                 'update_rate': self.update_rate,
-                'spawn_preset': self.swarm.spawn_preset
+                'spawn_preset': self.swarm.spawn_preset,
+                'obstacles': self.swarm.get_obstacle_states(),
             }
             
     def enqueue(self, cmd: str, payload: Optional[Dict[str, Any]] = None):
@@ -281,6 +325,18 @@ class Simulator:
                     elif cmd == "SET_FORMATION":
                         with self.lock:
                             self.swarm.set_formation(**payload)
+                    elif cmd == "ADD_BOX":
+                        with self.lock:
+                            self.swarm.obstacles.add_box(**payload)
+                    elif cmd == "ADD_CYLINDER":
+                        with self.lock:
+                            self.swarm.obstacles.add_cylinder(**payload)
+                    elif cmd == "REMOVE_OBSTACLE":
+                        with self.lock:
+                            self.swarm.obstacles.remove_last()
+                    elif cmd == "CLEAR_OBSTACLES":
+                        with self.lock:
+                            self.swarm.obstacles.clear_all()
                     elif cmd == "PAUSE":
                         self.paused = True
                     elif cmd == "RESUME":
