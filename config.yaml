@@ -164,6 +164,14 @@ obstacles:
         size: [8, 6, 2]
         color: [0.4, 0.4, 0.6]
 
+# API Server Settings
+api:
+  enabled: false
+  host: "0.0.0.0"
+  port: 8000
+  ws_push_rate: 10          # Hz, WebSocket state push rate
+  cors_origins: ["*"]       # CORS for browser clients
+
 # Formation Settings
 formation:
   spacing: 3.0  # meters

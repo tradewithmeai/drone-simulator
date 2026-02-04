@@ -100,6 +100,39 @@ def run_headless_simulation(config_path="config.yaml"):
     finally:
         simulator.stop()
 
+def run_api_server(config_path="config.yaml", host="0.0.0.0", port=8000,
+                   cors_origins=None, ws_push_rate=10.0):
+    """Run simulation with REST/WebSocket API server."""
+    global active_simulator
+
+    print(f"Starting API server on {host}:{port}...")
+
+    simulator = Simulator(config_path)
+    active_simulator = simulator
+    simulator.start()
+
+    # Wait for auto-spawn to complete
+    time.sleep(1.0)
+
+    try:
+        import uvicorn
+        from api.server import create_app
+    except ImportError as e:
+        print(f"Error: API dependencies not available: {e}")
+        print("  pip install fastapi uvicorn websockets")
+        simulator.stop()
+        sys.exit(1)
+
+    app = create_app(simulator, cors_origins=cors_origins, ws_push_rate=ws_push_rate)
+
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="info")
+    except KeyboardInterrupt:
+        print("\n[EXIT] Shutting down API server...")
+    finally:
+        simulator.stop()
+
+
 def run_gui_simulation(config_path="config.yaml"):
     """Run simulation with 3D GUI."""
     global active_gui
@@ -136,6 +169,12 @@ def main():
                        help='Run GUI in safe mode with minimal features')
     parser.add_argument('--no-spawn', action='store_true',
                        help='Ultra-safe mode: start with zero drones (manual spawn only)')
+    parser.add_argument('--api', action='store_true',
+                       help='Start REST/WebSocket API server')
+    parser.add_argument('--api-host', default=None,
+                       help='API server host (default from config or 0.0.0.0)')
+    parser.add_argument('--api-port', type=int, default=None,
+                       help='API server port (default from config or 8000)')
     
     args = parser.parse_args()
     
@@ -190,7 +229,15 @@ def main():
         use_gui = True
     
     # Start appropriate mode
-    if use_gui:
+    if args.api:
+        api_cfg = config.get('api', {})
+        host = args.api_host or api_cfg.get('host', '0.0.0.0')
+        port = args.api_port or api_cfg.get('port', 8000)
+        cors_origins = api_cfg.get('cors_origins', ['*'])
+        ws_push_rate = api_cfg.get('ws_push_rate', 10.0)
+        run_api_server(args.config, host=host, port=port,
+                       cors_origins=cors_origins, ws_push_rate=ws_push_rate)
+    elif use_gui:
         run_gui_simulation(args.config)
     else:
         run_headless_simulation(args.config)
