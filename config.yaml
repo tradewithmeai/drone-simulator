@@ -183,6 +183,17 @@ api:
   ws_push_rate: 10          # Hz, WebSocket state push rate
   cors_origins: ["*"]       # CORS for browser clients
 
+# Gamepad / Xbox Controller Settings
+gamepad:
+  enabled: true
+  deadzone: 0.15                   # Analog stick deadzone (0.0-0.5)
+  stick_sensitivity: 1.0           # Multiplier for stick input
+  trigger_sensitivity: 1.0         # Multiplier for trigger input
+  invert_right_y: false            # Invert right stick Y axis
+  camera_orbit_speed: 2.0          # Radians/sec for camera orbit
+  camera_zoom_speed: 0.02          # Zoom rate per frame from triggers
+  fpv_yaw_sensitivity: 1.0         # Multiplier for FPV yaw from right stick
+
 # Formation Settings
 formation:
   spacing: 3.0  # meters

@@ -3,6 +3,7 @@ import sys
 import yaml
 import time
 import threading
+import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
@@ -12,6 +13,7 @@ try:
 except ImportError:
     from gui.renderer import Renderer  # Fallback to original
 from gui.overlay import TextOverlay
+from gui.gamepad import GamepadManager
 from simulation.simulator import Simulator
 
 class DroneSwarmGUI:
@@ -86,6 +88,12 @@ class DroneSwarmGUI:
         self.fps = 0.0
         self.last_fps_update = time.time()
         
+        # Gamepad controller
+        gamepad_config = self.config.get('gamepad', {})
+        self.gamepad = GamepadManager(gamepad_config)
+        self._formation_cycle_index = 0
+        self._formation_list = ['line', 'circle', 'grid', 'v_formation', 'idle']
+
         # Placement mode state
         self.placement_mode = False
         self.placement_delete_mode = False
@@ -208,6 +216,9 @@ class DroneSwarmGUI:
                 if event.button == 3:  # Right mouse button
                     # Future: implement drone selection
                     pass
+
+            elif event.type in (pygame.JOYDEVICEADDED, pygame.JOYDEVICEREMOVED):
+                self.gamepad.check_hotplug(time.time(), force=True)
                 
     def handle_key_press(self, key, shift_pressed=False):
         """Handle specific key presses."""
@@ -486,13 +497,25 @@ class DroneSwarmGUI:
             self.frame_count = 0
             self.last_fps_update = current_time
         
-        # FPV mode: send velocity commands based on keyboard input
+        # Poll gamepad
+        self.gamepad.poll(time.time())
+
+        # FPV mode: send velocity commands based on keyboard + gamepad input
         if self.fpv_mode:
             self._update_fpv_input()
         else:
             # Normal camera movement and smooth interpolation
             self.camera.handle_keyboard(self.keys_pressed, dt)
             self.camera.update_smooth_movement(dt)
+
+        # Gamepad continuous input (sticks, triggers)
+        if self.gamepad.connected:
+            self._process_gamepad_buttons()
+            if not self.fpv_mode:
+                if self.placement_mode:
+                    self._update_gamepad_placement(dt)
+                else:
+                    self._update_gamepad_normal(dt)
         
         # Diagnostic logging every N seconds
         current_time = time.time()
@@ -680,6 +703,15 @@ class DroneSwarmGUI:
         if self.keys_pressed.get('q', False):
             vertical -= 1.0
 
+        # Add gamepad contribution
+        if self.gamepad.connected:
+            gp = self.gamepad
+            forward += -gp.left_stick[1]   # stick Y inverted (up = -1)
+            strafe += -gp.left_stick[0]
+            vertical += gp.right_trigger - gp.left_trigger
+            dt = self.clock.get_time() / 1000.0 if self.clock.get_time() > 0 else 1/60
+            self.fpv_yaw_accumulator -= gp.right_stick[0] * gp.fpv_yaw_sensitivity * self.fpv_yaw_rate * dt
+
         # Rotate velocity by yaw to get world-frame XZ
         sin_yaw = math.sin(yaw)
         cos_yaw = math.cos(yaw)
@@ -705,6 +737,159 @@ class DroneSwarmGUI:
         if self.fpv_drone_id is None:
             return None
         return next((d for d in self.drone_states if d['id'] == self.fpv_drone_id), None)
+
+    def _update_gamepad_normal(self, dt):
+        """Process gamepad sticks/triggers for camera control in normal mode."""
+        import math
+        gp = self.gamepad
+
+        # Left stick -> camera pan (same vectors as WASD)
+        lx, ly = gp.left_stick
+        if abs(lx) > 0 or abs(ly) > 0:
+            move_speed = self.camera.move_speed * dt
+            forward = self.camera.target - self.camera.position
+            forward_norm = np.linalg.norm(forward)
+            if forward_norm > 0:
+                forward = forward / forward_norm
+            else:
+                forward = np.array([0, 0, -1])
+            right = np.cross(forward, self.camera.up)
+            right_norm = np.linalg.norm(right)
+            if right_norm > 0:
+                right = right / right_norm
+            else:
+                right = np.array([1, 0, 0])
+            movement = (-forward * ly + right * lx) * move_speed
+            self.camera.position += movement
+            self.camera.target += movement
+
+        # Right stick -> camera orbit
+        rx, ry = gp.right_stick
+        if abs(rx) > 0 or abs(ry) > 0:
+            orbit_speed = gp.camera_orbit_speed * dt
+            self.camera.theta += rx * orbit_speed
+            self.camera.phi -= ry * orbit_speed
+            self.camera.phi = max(0.1, min(math.pi - 0.1, self.camera.phi))
+            self.camera._update_position_from_spherical()
+
+        # Triggers -> zoom
+        zoom = gp.right_trigger - gp.left_trigger
+        if abs(zoom) > 0:
+            self.camera.distance *= (1.0 - zoom * gp.camera_zoom_speed)
+            self.camera.distance = max(1.0, min(100.0, self.camera.distance))
+            self.camera._update_position_from_spherical()
+
+    def _update_gamepad_placement(self, dt):
+        """Process gamepad left stick for placement cursor movement."""
+        gp = self.gamepad
+        lx, ly = gp.left_stick
+        if abs(lx) > 0 or abs(ly) > 0:
+            speed = self.placement_cursor_speed * dt * 30
+            self.placement_cursor[0] -= lx * speed
+            self.placement_cursor[1] -= ly * speed
+
+    def _process_gamepad_buttons(self):
+        """Handle one-shot gamepad button presses and D-pad actions."""
+        gp = self.gamepad
+        if not gp.connected:
+            return
+
+        # Context-aware B button (exit current mode)
+        if gp.buttons_pressed.get(GamepadManager.BTN_B):
+            if self.fpv_mode:
+                self._exit_fpv()
+            elif self.placement_mode:
+                if self.placement_delete_mode:
+                    self.placement_delete_mode = False
+                    self.placement_selected_idx = -1
+                else:
+                    self.placement_mode = False
+                    self.placement_delete_mode = False
+
+        # Start -> toggle FPV
+        if gp.buttons_pressed.get(GamepadManager.BTN_START):
+            self._toggle_fpv()
+
+        # Skip remaining buttons if in FPV mode
+        if self.fpv_mode:
+            return
+
+        if self.placement_mode:
+            # Placement-specific button actions
+            if gp.buttons_pressed.get(GamepadManager.BTN_A):
+                if self.placement_delete_mode:
+                    self._handle_placement_key('delete', False)
+                else:
+                    self._handle_placement_key('return', False)
+            if gp.buttons_pressed.get(GamepadManager.BTN_X):
+                self._handle_placement_key('b', False)
+            if gp.buttons_pressed.get(GamepadManager.BTN_Y):
+                # Toggle delete sub-mode
+                self.handle_key_press('j', True)
+            if gp.buttons_pressed.get(GamepadManager.BTN_RB):
+                self._handle_placement_key('=', False)
+            if gp.buttons_pressed.get(GamepadManager.BTN_LB):
+                self._handle_placement_key('-', False)
+            # D-pad for obstacle selection in delete mode
+            dx, dy = gp.dpad
+            if self.placement_delete_mode:
+                if dx > 0 and hasattr(self, '_gp_dpad_prev_x') and self._gp_dpad_prev_x <= 0:
+                    self._handle_placement_key('right', False)
+                elif dx < 0 and hasattr(self, '_gp_dpad_prev_x') and self._gp_dpad_prev_x >= 0:
+                    self._handle_placement_key('left', False)
+            self._gp_dpad_prev_x = dx
+            return
+
+        # Normal mode button actions
+        if gp.buttons_pressed.get(GamepadManager.BTN_A):
+            self.handle_key_press('p', False)  # pause
+        if gp.buttons_pressed.get(GamepadManager.BTN_X):
+            self.handle_key_press('h', False)  # help
+        if gp.buttons_pressed.get(GamepadManager.BTN_Y):
+            self.handle_key_press('home', False)  # frame swarm
+        if gp.buttons_pressed.get(GamepadManager.BTN_BACK):
+            self.handle_key_press('l', False)  # labels
+        if gp.buttons_pressed.get(GamepadManager.BTN_L3):
+            self.handle_key_press('r', False)  # reset camera
+        if gp.buttons_pressed.get(GamepadManager.BTN_R3):
+            self.handle_key_press('g', False)  # grid
+
+        # LB/RB -> cycle drone lock
+        if gp.buttons_pressed.get(GamepadManager.BTN_RB):
+            self._gamepad_cycle_drone_lock(1)
+        if gp.buttons_pressed.get(GamepadManager.BTN_LB):
+            self._gamepad_cycle_drone_lock(-1)
+
+        # D-pad left/right -> cycle formations
+        dx, dy = gp.dpad
+        if not hasattr(self, '_gp_dpad_prev'):
+            self._gp_dpad_prev = (0, 0)
+        if dx > 0 and self._gp_dpad_prev[0] <= 0:
+            self._formation_cycle_index = (self._formation_cycle_index + 1) % len(self._formation_list)
+            formation = self._formation_list[self._formation_cycle_index]
+            self.simulator.set_formation(formation)
+            print(f"[GAMEPAD] Formation: {formation}")
+        elif dx < 0 and self._gp_dpad_prev[0] >= 0:
+            self._formation_cycle_index = (self._formation_cycle_index - 1) % len(self._formation_list)
+            formation = self._formation_list[self._formation_cycle_index]
+            self.simulator.set_formation(formation)
+            print(f"[GAMEPAD] Formation: {formation}")
+        self._gp_dpad_prev = (dx, dy)
+
+    def _gamepad_cycle_drone_lock(self, direction):
+        """Cycle camera lock to next/previous drone."""
+        if not self.drone_states:
+            return
+        max_id = len(self.drone_states) - 1
+        current = self.camera.locked_drone_id
+        if current is None:
+            new_id = 0 if direction > 0 else max_id
+        else:
+            new_id = current + direction
+            if new_id < 0 or new_id > max_id:
+                self.camera.unlock_camera()
+                return
+        self.camera.lock_to_drone(new_id)
 
     def draw_overlays(self):
         """Draw all GUI overlays."""
@@ -776,6 +961,12 @@ class DroneSwarmGUI:
                     r, h = self.placement_cyl_size
                     self.overlay.draw_text(f"Type: Cylinder (r={r:.1f} h={h:.1f})  Pos: ({cx:.1f}, {cz:.1f})", 10, y_start + 20, (200, 255, 200))
                 self.overlay.draw_text("Arrows=Move  B=Type  Enter=Place  +/-=Size  Shift+J=Delete  J=Exit", 10, y_start + 40, (200, 200, 200))
+
+        # Gamepad connection indicator (top-right area)
+        if self.gamepad.connected:
+            self.overlay.draw_text("Gamepad: Connected", self.width - 200, 10, (0, 255, 0))
+        elif self.gamepad.enabled:
+            self.overlay.draw_text("Gamepad: Not connected", self.width - 220, 10, (128, 128, 128))
 
         # Draw help overlay
         if self.show_help:

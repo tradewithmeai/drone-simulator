@@ -104,6 +104,13 @@ class TextOverlay:
             "  P - Pause/Resume",
             "  O - Step one tick (when paused)",
             "",
+            "Xbox Controller:",
+            "  LStick - Move/Fly  RStick - Look",
+            "  Triggers - Zoom/Throttle",
+            "  A - Pause/Place  B - Back/Exit",
+            "  Start - FPV   D-Pad - Formations",
+            "  LB/RB - Drone lock / Size",
+            "",
             "  H - Toggle this help  ESC - Exit",
         ]
         
