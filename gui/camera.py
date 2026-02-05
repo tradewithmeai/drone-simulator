@@ -34,7 +34,7 @@ class Camera:
         
         # Spherical coordinates for orbiting
         self.distance = np.linalg.norm(self.position - self.target)
-        self.theta = 0  # Horizontal angle
+        self.theta = math.pi / 2  # Horizontal angle (start looking from +Z toward origin)
         self.phi = math.pi / 4  # Vertical angle
         
         self._update_position_from_spherical()

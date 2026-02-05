@@ -52,7 +52,7 @@ class Renderer:
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
         
-    def draw_all_drones(self, drone_states, size=0.5):
+    def draw_all_drones(self, drone_states, size=0.5, locked_drone_id=None):
         """Draw all drones as quad-prop models with lighting enabled."""
         for drone_state in drone_states:
             position = drone_state['position']
@@ -61,6 +61,9 @@ class Renderer:
             crashed = drone_state.get('crashed', False)
             orientation = drone_state.get('orientation', [0, 0, 0])
             self._draw_quad_drone(position, orientation, color, size, settled, crashed)
+            # Highlight locked/selected drone
+            if locked_drone_id is not None and drone_state['id'] == locked_drone_id:
+                self._draw_drone_highlight(position, size)
 
     def _draw_quad_drone(self, position, orientation, color, size, settled, crashed):
         """Draw a single drone as a quad-prop model with body, arms, motors, and direction."""
@@ -158,7 +161,23 @@ class Renderer:
 
         glEnable(GL_LIGHTING)
         glPopMatrix()
-        
+
+    def _draw_drone_highlight(self, position, size):
+        """Draw a bright ring around the selected/locked drone."""
+        glDisable(GL_LIGHTING)
+        glColor3f(1.0, 1.0, 0.0)  # yellow highlight
+        glLineWidth(2.5)
+        ring_r = size * 1.2
+        glPushMatrix()
+        glTranslatef(position[0], position[1], position[2])
+        glBegin(GL_LINE_LOOP)
+        for i in range(24):
+            angle = 2.0 * math.pi * i / 24
+            glVertex3f(ring_r * math.cos(angle), 0, ring_r * math.sin(angle))
+        glEnd()
+        glPopMatrix()
+        glEnable(GL_LIGHTING)
+
     def draw_drone_trail(self, positions, color):
         """Draw trail behind drone (optional feature)."""
         if len(positions) < 2:
@@ -541,6 +560,7 @@ class Renderer:
     def draw_placement_cursor(self, cursor_xz, obstacle_type, size):
         """Draw a semi-transparent wireframe preview at the placement cursor."""
         glDisable(GL_LIGHTING)
+        glDisable(GL_DEPTH_TEST)  # Always visible, even through placed obstacles
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
@@ -595,4 +615,5 @@ class Renderer:
             glPopMatrix()
 
         glDisable(GL_BLEND)
+        glEnable(GL_DEPTH_TEST)
         glEnable(GL_LIGHTING)

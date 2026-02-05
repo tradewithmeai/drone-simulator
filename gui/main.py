@@ -187,7 +187,7 @@ class DroneSwarmGUI:
                 if self.fpv_mode:
                     # In FPV: mouse X controls yaw
                     dx = event.rel[0]
-                    self.fpv_yaw_accumulator += dx * 0.003
+                    self.fpv_yaw_accumulator -= dx * 0.003
                 elif self.mouse_dragging:
                     current_pos = pygame.mouse.get_pos()
                     dx = current_pos[0] - self.last_mouse_pos[0]
@@ -235,8 +235,8 @@ class DroneSwarmGUI:
                     print("[PLACEMENT] Placement mode OFF")
             return
 
-        # In placement mode, handle placement-specific keys
-        if self.placement_mode:
+        # In placement mode, handle placement-specific keys (but let H through for help)
+        if self.placement_mode and key != 'h':
             self._handle_placement_key(key, shift_pressed)
             return
 
@@ -395,7 +395,7 @@ class DroneSwarmGUI:
             
             # Draw all drones with lighting enabled (batched)
             if self.drone_states:
-                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
+                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'], self.camera.locked_drone_id)
 
             # Draw obstacles (lit) with optional highlight
             if self.show_obstacles and self.obstacle_states:
@@ -433,7 +433,7 @@ class DroneSwarmGUI:
                 
             # Draw drones (batched quad-prop model)
             if self.drone_states:
-                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'])
+                self.renderer.draw_all_drones(self.drone_states, self.config['drones']['size'], self.camera.locked_drone_id)
 
             # Draw targets
             for drone_state in self.drone_states:
@@ -570,15 +570,15 @@ class DroneSwarmGUI:
                 self.placement_selected_idx = -1
             return
 
-        # Normal placement mode
+        # Normal placement mode (cursor[0]=X, cursor[1]=Z)
         if key == 'up':
-            self.placement_cursor[1] -= speed  # -Z = forward in default view
+            self.placement_cursor[1] += speed  # +Z = away from default camera
         elif key == 'down':
-            self.placement_cursor[1] += speed
+            self.placement_cursor[1] -= speed
         elif key == 'left':
-            self.placement_cursor[0] -= speed
-        elif key == 'right':
             self.placement_cursor[0] += speed
+        elif key == 'right':
+            self.placement_cursor[0] -= speed
         elif key == 'b':
             self.placement_type = 'cylinder' if self.placement_type == 'box' else 'box'
             print(f"[PLACEMENT] Type: {self.placement_type}")
@@ -672,9 +672,9 @@ class DroneSwarmGUI:
         if self.keys_pressed.get('s', False):
             forward -= 1.0
         if self.keys_pressed.get('d', False):
-            strafe += 1.0
-        if self.keys_pressed.get('a', False):
             strafe -= 1.0
+        if self.keys_pressed.get('a', False):
+            strafe += 1.0
         if self.keys_pressed.get('e', False):
             vertical += 1.0
         if self.keys_pressed.get('q', False):
